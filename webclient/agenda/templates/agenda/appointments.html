@@ -1,0 +1,40 @@
+{% extends "agenda/base.html" %}
+{% load i18n %}
+
+{% block content %}
+
+	<div class="section">
+		<h2>{% trans "Manage appointments" %}</h2>
+
+		<h3>{% trans "New appointment" %}</h3>
+
+		<form action="{% url appointments %}" method="post">{% csrf_token %}
+    {% for field in form %}
+        <div class="fieldWrapper">
+            {{ field.errors }}
+            {{ field.label_tag }}: {{ field }}
+        </div>
+    {% endfor %}
+		<input type="submit" value="{% trans "Save" %}" />
+		</form>
+
+		<h3>{% trans "Appointments list" %}</h3>
+
+		<ul>
+		{% for appointment in appointments %}
+        {% ifchanged appointment.start.date %}<br /> {% endifchanged %}
+		<li>
+			<form method="post" action="{% url appointments %}">{% csrf_token %}
+                {{ appointment.start_datetime|date:"j-M" }}
+                {{ appointment.start_datetime|date:"G:i" }} - {{ appointment.end_datetime|date:"G:i" }}
+				<input type="hidden" name="method" value="delete">
+				<input type="hidden" name="id" value="{{ appointment.id }}">
+				<input style="display:inline;" type="submit" value="{% trans "Delete" %}" />
+			</form>
+		</li>
+		{% endfor %}
+		</ul>
+
+	</div><!-- /section -->
+
+{% endblock %}

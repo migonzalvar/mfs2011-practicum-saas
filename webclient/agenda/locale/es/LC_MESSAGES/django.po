@@ -1,0 +1,130 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2012-08-29 20:25+0200\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1)\n"
+
+#: forms.py:28
+msgid "Name"
+msgstr "Nombre"
+
+#: forms.py:29 forms.py:35 templates/agenda/slots.html:11
+msgid "Date"
+msgstr "Fecha"
+
+#: forms.py:30 forms.py:36
+msgid "From"
+msgstr "Desde"
+
+#: forms.py:31 forms.py:37
+msgid "To"
+msgstr "A"
+
+#: views.py:65
+#, python-format
+msgid "Resource %(id)s saved."
+msgstr "Grabado %(id)s."
+
+#: views.py:81
+#, python-format
+msgid "Resource %(id)s deleted."
+msgstr "Borrado %(id)s."
+
+#: templates/agenda/appointments.html:7 templates/agenda/base.html:34
+msgid "Manage appointments"
+msgstr "Gestionar citas"
+
+#: templates/agenda/appointments.html:9
+msgid "New appointment"
+msgstr "Nueva cita"
+
+#: templates/agenda/appointments.html:18 templates/agenda/shifts.html:18
+msgid "Save"
+msgstr "Guardar"
+
+#: templates/agenda/appointments.html:21
+msgid "Appointments list"
+msgstr "Lista de citas"
+
+#: templates/agenda/appointments.html:32 templates/agenda/shifts.html:32
+msgid "Delete"
+msgstr "Borrar"
+
+#: templates/agenda/base.html:5
+msgid "Manage agenda"
+msgstr "Gestionar agenda"
+
+#: templates/agenda/base.html:15
+msgid ""
+"<p class=\"chromeframe\">Your browser is <em>ancient!</em> <a href=\"http://"
+"browsehappy.com/\">Upgrade to a different browser</a> or <a href=\"http://"
+"www.google.com/chromeframe/?redirect=true\">install Google Chrome Frame</a> "
+"to experience this site.</p>"
+msgstr ""
+
+#: templates/agenda/base.html:26
+msgid "Find a free slot"
+msgstr "Buscar huecos libres"
+
+#: templates/agenda/base.html:30 templates/agenda/shifts.html:7
+msgid "Manage work shifts"
+msgstr "Gestionar turnos de trabajo"
+
+#: templates/agenda/shifts.html:9
+msgid "New shift"
+msgstr "Nuevo turno de trabajo"
+
+#: templates/agenda/shifts.html:21
+msgid "Work shifts list"
+msgstr "Lista de turnos de trabajo"
+
+#: templates/agenda/slots.html:6
+#, python-format
+msgid ""
+"\n"
+"        Find free slots on %(basedate_t)s\n"
+"        "
+msgstr ""
+"\n"
+"        Buscar huecos libres el %(basedate_t)s\n"
+"        "
+
+#: templates/agenda/slots.html:21
+msgid "Prev"
+msgstr "Anterior"
+
+#: templates/agenda/slots.html:22
+msgid "Next"
+msgstr "Siguiente"
+
+#: templates/agenda/slots.html:23
+msgid "Search"
+msgstr "Buscar"
+
+#: templates/agenda/slots.html:26
+msgid "Free slots"
+msgstr "Huecos libres"
+
+#: templates/agenda/slots.html:37
+msgid "Make appointment"
+msgstr "Reservar cita"
+
+#~ msgid "Spanish"
+#~ msgstr "Español"
+
+#~ msgid "English"
+#~ msgstr "Inglés"
