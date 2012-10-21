@@ -1,0 +1,7 @@
+Django
+South
+requests
+hammock
+django-debug-toolbar
+gunicorn
+pytz

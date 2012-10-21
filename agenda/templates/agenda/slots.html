@@ -1,0 +1,57 @@
+{% extends "agenda/base.html" %}
+{% load i18n %}
+{% block content %}
+
+	<div class="section">
+		<h2>{% blocktrans with basedate_t=basedate|date:"SHORT_DATE_FORMAT" %}
+        Find free slots on {{ basedate_t }}
+        {% endblocktrans %}</h2>
+		<form>
+			<div>
+				<label for="date">{% trans "Date" %}</label>
+				<select name="date">
+					{% for d in selectdate %}
+					<option
+						value="{{ d|date:"ymd" }}"
+						{% if d == basedate %}selected="selected"{% endif %}>
+						{{ d|date:"j-M" }}
+					</option>
+					{% endfor %}
+				</select>
+                <a href="{% url freeslots year=prev.year month=prev.month day=prev.day %}">&larr; {% trans "Prev" %}</a>
+				<a href="{% url freeslots year=next.year month=next.month day=next.day %}">{% trans "Next" %} &rarr;</a>
+				<button name="send">{% trans "Search" %}</button>
+			</div>
+		</form>
+		<h3>{% trans "Free slots" %}</h3>
+		<ul>
+		{% for slot in freeslots|dictsort:"start_datetime" %}
+            {% ifchanged slot.start_datetime.time %}
+                <li>
+                    <form action="{% url freeslots %}" method="post">{% csrf_token %}
+                        {{ slot.start_datetime|date:"G:i" }}
+                        <input type="hidden" name="start_dt" value="{{slot.start_datetime|date:"Y-m-d H:i:s" }}" />
+                        <input type="hidden" name="end_dt" value="{{slot.end_datetime|date:"Y-m-d H:i:s" }}" />
+                        <input type="hidden" name="redirect" value="{% url freeslots basedate.year basedate.month basedate.day %}" />
+                        <input style="display:inline;" type="submit" value="{% trans "Make appointment" %}" />
+                    </form>
+                </li>
+            {% endifchanged %}
+		{% endfor %}
+	   </ul>
+
+    <!--
+    <form action="{% url freeslots %}" method="post">{% csrf_token %}
+    {% for field in form %}
+        <div class="fieldWrapper">
+            {{ field.errors }}
+            {{ field.label_tag }}: {{ field }}
+        </div>
+    {% endfor %}
+        <input type="submit" value="{% trans "Save" %}" />
+    </form>
+     -->
+
+	</div><!-- /section -->
+
+{% endblock %}

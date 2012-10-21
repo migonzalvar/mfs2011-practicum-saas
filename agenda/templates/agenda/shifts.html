@@ -1,0 +1,39 @@
+{% extends "agenda/base.html" %}
+{% load i18n %}
+
+{% block content %}
+
+	<div class="section">
+		<h2>{% trans "Manage work shifts" %}</h2>
+
+		<h3>{% trans "New shift" %}</h3>
+
+		<form action="{% url shifts %}" method="post">{% csrf_token %}
+    {% for field in form %}
+        <div class="fieldWrapper">
+            {{ field.errors }}
+            {{ field.label_tag }}: {{ field }}
+        </div>
+    {% endfor %}
+		<input type="submit" value="{% trans "Save" %}" />
+		</form>
+
+		<h3>{% trans "Work shifts list" %}</h3>
+
+		<ul>
+		{% for shift in shifts %}
+		<li>
+			<form method="post" action="{% url shifts %}">{% csrf_token %}
+                {{ shift.start_datetime|date:"j-M" }},
+                {{ shift.start_datetime|date:"G:i" }} - {{ shift.end_datetime|date:"G:i" }}
+				<input type="hidden" name="method" value="delete">
+				<input type="hidden" name="id" value="{{ shift.id }}">
+				<input style="display:inline;" type="submit" value="{% trans "Delete" %}" />
+			</form>
+		</li>
+		{% endfor %}
+		</ul>
+
+	</div><!-- /section -->
+
+{% endblock %}
