@@ -1,0 +1,2710 @@
+Building a software as a service appointment system with FLOSS
+==============================================================
+:author:   Miguel González Álvarez
+:email:    migonzalvar@gmail.com
+:doctype:  book
+:revdate:  2012-08-28
+
+
+[dedication]
+To my family.
+
+Thanks to Teo Romera, Igalia, Libresoft at URJC and my colleagues in the V Master
+Software Libre for their help.
+
+
+[preface]
+Summary
+-------
+
+This is the final report of the practicum within the *V Máster en Desarrollo
+y Gestión de Proyectos de Software Libre* organized by Igalia
+footnote:[Igalia, S.L., http://www.igalia.com] and Libresoft
+footnote:[http://libresoft.es/] research group based at University Rey Juan
+Carlos footnote:[http://www.urjc.es/].
+
+
+The goal is to build a software as a service appointment system using free
+libre software tools and analyze every step including possible business
+models.
+
+This work was developed between June and September 2012 by Miguel González
+with Teo Romera as tutor.
+
+
+Description
+-----------
+[quote, Eric S. Raymond, The Cathedral and the Bazaar]
+______________
+Every good work of software starts by scratching a developer's personal itch.
+footnote:[See <<RAYMOND2000>>.]
+______________
+
+Scratching my itch
+~~~~~~~~~~~~~~~~~~
+
+My *barber shop's phone line is always busy*. It is annoying because when
+some time later I remember to try again it is too late and they are off.
+
+When I finally get to the shop, in the middle of my hair cut, interruptions
+occur every moment because other customers are trying to reach my
+hairdresser.
+
+It would be great if they had an on-line system to make an appointment in an
+easy and fast way. + 
+
+
+In this year at the *V Máster en Desarrollo y Gestión de Proyectos de
+Software Libre* I have learnt a lot of technologies: systems administration,
+scripting, databases, web programming... Sure it is possible to develop
+a solution for my barber shop's combining the appropriate elements. + 
+
+
+But FLOSS is not only about pure technology. It all begins with the code and
+its four essentials freedoms footnote:[See
+http://www.gnu.org/philosophy/free-sw.en.html]. These freedoms allow to
+learn from others and to build using their work.
+
+This 'free' environment creates a very special scenario in which
+collaboration and communications have a central role. Even though 'free = gratis'
+misunderstanding, it is possible to define a business model using FLOSS. + 
+
+
+Would it be possible to build a FLOSS SaaS system with a business case to
+solve my hairdresser problem?
+
+
+Goals
+~~~~~
+
+The object of this practicum will be:
+
+- To develop an appointment system targeted to professional people who work
+  with schedules
+
+- To implement the solution with a Software as a Service (SaaS) deploy model
+
+- Using free software tools
+
+- Starting from scratch and getting to a final deployed system
+
+- To describe the process and technologies used and justify the decisions
+
+- To analyze possible business models
+
+
+Planning
+~~~~~~~~
+
+The 'practicum' has been divided into 3 main parts: definition of the
+system's architecture, implementation and deployment on the Internet.
+
+A work breakdown structure with estimated times is described next.
+
+. Architecture and main tools definition (2 weeks)
+.. Client/server architecture
+.. RESTful API definition
+.. Tools and frameworks
+... Persistence
+... Server
+... Web client
+... Environment
+
+. Server implementation (6 weeks)
+.. Domain implementation
+.. Persistence
+.. HTTP server wrapping
+.. Testing and QA
+
+. Client implementation (4 weeks)
+.. Web
+... Mock-up
+... Access to API server: model_server
+... Development
+... Testing and QA
+
+. Deployment (1 week)
+.. Base system installation
+.. Source deployment
+.. Automated deployment
+
+Finally, this report has been written with a description of the previous tasks
+and an business model study for the service developed.
+
+
+Tools
+~~~~~
+
+:vim: footnote:[http://www.vim.org/, license Charityware GPL compatible.]
+:eclipse: footnote:[http://www.eclipse.org/, Eclipse Public License.]
+:pydev: footnote:[http://pydev.org/, also Eclipse Public License.]
+:git: footnote:[http://git-scm.com/, GNU General Public License v2.]
+
+
+indexterm:[Tools, Editor, vim]
+indexterm:[Tools, Editor, Eclipse]
+indexterm:[Tools, Editor, Pydev]
+indexterm:[Tools, Versioning, git]
+
+All the tools used in the practicum have a FLOSS license so it is
+possible to say this is a 100% open source product.
+
+The software packages, servers and libraries used to developed the system
+are described in detail in the appropriate sections.  But I want to note
+here the most used tools, the editors and the control
+version system.
+
+- The editor, or better the editors have been two different programs.
++
+First, the veteran `vim`{vim} text editor with lots of plugins and customization.
++
+The other editor has been Eclipse IDE{eclipse} with PyDev plugin{pydev}.
+
+- For version control the chosen one was `git`{git}.
+
+
+Development
+-----------
+
+Architecture
+~~~~~~~~~~~~
+
+The system architecture consists in three layers: the web client, the API server and
+the data store.
+
+- The *API server* is the core of the system. It is an HTTP server which exposes
+  a RESTful interface.
+
+- The *data store* is a redis key-value server. The API server is the
+  component which manages data.
+
+- The *web client* communicates with the API server through RESTful methods
+  and exposes tho the final user HTML.
+
+["ditaa"]
+-------------
++---------------------+
+| Client              |
+++--------------------+
+ |
+ | TCP / HTTP 1.1
+ |
+ v
++---------------------+
+| HTTP server         |
++---------------------+
+| Domain controller   |
++---------------------+
+| Data store          |
+++--------------------+
+ |
+ | TCP
+ |
+ v
++---------------------+
+| Redis               |
++---------------------+
+--------------
+
+The server, again, has three layers:
+
+- the core is the *domain controller* which implements the business logic.
+
+- on top, an *HTTP server* implementation for communicating with clients. It
+  deals with input filtering, authentication and output representation.
+
+- at the bottom, the *data store* adapter in charge of saving and retrieving
+  the data. It has to take care of index management and transactions.
+
+Server domain controller
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+The domain model is simple. There is an *agenda* and an agenda has *work
+shifts*. A *work shift* is a time period in which a professional is
+available to work. A work shift can contain *appointments*, which are
+allocations of time arranged in advance, until is full.
+
+["ditaa"]
+-----
+
+                       +----+--------+             +-------------+
+                       | cRED        |             | cRED        |
+                       |  Overlaps   |             | Not included|
+                       |             |             |             |
+                       +----+--------+             +-------------+
+                       ^    ^                           ^        ^
++-------------+-------------+
+|             |             |
+| Appointment | Appointment |     Slot          Slot
+|             |             |
++-------------+-------------+
+
+
++-------------+-------------+-------------+-------------+
+|                                                       |
+|                    Work shift                         |
+|                                                       |
++-------------------------------------------------------+
+9            10            11            12            13
+
+-----
+
+Time is stored in integers. For testing purposes and better readability of
+the examples, small integers are used but, when recording actual dates, the
+integer will be a Unix time stamp, that is, the number of seconds since
+midnight Coordinated Universal Time (UTC), January 1, 1970 footnote:[On
+January 19th,  2038 if using 32 bit integer, an overflow will occur. It is
+important to be sure a 64 bit integer is used by this date.].
+
+Work shifts and appointments are periods of time or time intervals. An
+interval has several properties:
+
+- Two intervals are equal if they start and end at the same time.
+
+- An interval contains another if the latter starts after (or at the same
+  time) and ends before (or at the same time) than the former.
+
+- An interval overlaps with another if they match at any time. This
+  definition is equivalent to say that the ending time of one extends
+  beyond the start time of the other and reversed.
+
+The following snippet implements these properties on an *interval class*:
+
+[source,python]
+----
+class Interval(object):
+    def __init__(self, start, end):
+        self.start = start
+        self.end = end
+
+    def __eq__(self, other):
+        return (other.start == self.start and
+                other.end == self.end)
+
+    def __contains__(self, other):
+        return other.start >= self.start and other.end <= self.end
+
+    def overlaps(self, other):
+        return other.end > self.start and self.end > other.start
+----
+
+To try out and explain, following are some tests. The tests written
+using `unittest`, a Python package from the standard library.
+
+indexterm:[Tools, Testing, unittest]
+
+[source,python]
+----
+class TestInterval(unittest.TestCase):
+
+    def test_contains(self):
+        morning = Interval(9, 14)
+        meeting1 = Interval(10, 12)
+        meeting2 = Interval(12, 14)
+        meeting3 = Interval(13, 15)
+        meeting4 = Interval(16, 19)
+
+        self.assertIn(meeting1, morning)
+        self.assertIn(meeting2, morning)
+        self.assertNotIn(meeting3, morning)
+        self.assertNotIn(meeting4, morning)
+
+    def test_overlaps(self):
+        lunch = Interval(14, 16)
+        meeting2 = Interval(12, 14)
+        meeting3 = Interval(13, 15)
+
+        self.assertFalse(meeting2.overlaps(lunch))
+        self.assertTrue(meeting2.overlaps(meeting3))
+        self.assertTrue(meeting3.overlaps(lunch))
+
+    def test_equals(self):
+        morning = Interval(9, 14)
+        afternoon = Interval(16, 19)
+        meeting4 = Interval(16, 19)
+
+        self.assertEqual(afternoon, meeting4)
+        self.assertNotEqual(morning, afternoon)
+----
+
+And finally, this is how the tests are run.
+
+....
+$ python -m unittest -v test_interval
+test_contains (test_interval.TestInterval) ... ok
+test_equals (test_interval.TestInterval) ... ok
+test_overlaps (test_interval.TestInterval) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.000s
+
+OK
+....
+
+*Splitting an interval in slots and finding a free slot*
+
+In order to operate with an agenda, it is necessary to find free slots.
+In this case, first, it is shown a simple test to find free slots given
+a shift with some recorded appointments.
+
+[source, python]
+-----
+class TestOperations(unittest.TestCase):
+
+    def test_find_free_slots(self):
+        shift = Interval(9, 14)
+        appointments = [Interval(9, 10), Interval(10, 11), Interval(13, 14)]
+
+        slots = slots_in_interval(1, shift)
+        free = [s for s in slots if not interval_overlaps(s, appointments)]
+
+        self.assertEqual(free, [Interval(11, 12), Interval(12, 13)])
+-----
+
+In order to pass the test, 2 functions are needed.
+
+- `slots_in_interval` divide a slot in intervals of a given length.
++
+[source, python]
+-----
+def slots_in_interval(length, interval, step=None):
+    step = length if step == None else step
+    return (Interval(s, s + length)
+            for s in range(interval.start, interval.end, step)
+            if s + length <= interval.end)
+-----
+
+- `interval_overlaps` is true when a given interval overlaps with one or
+  more intervals in a set.
++
+[source, python]
+-----
+def interval_overlaps(interval, intervals):
+    for i in intervals:
+        if interval.overlaps(i):
+            return True
+    return False
+-----
+
+The result of running the test.
+
+[source]
+.....
+$ python -m unittest -v test_operations
+test_find_free_slots (test_operations.TestOperations) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+
+OK
+.....
+
+And finally, the *agenda controller class* is implemented.
+
+
+There are several constraints in this domain:
+
+. An agenda has a minimum length. Work shifts and appointments duration must
+be multiple of the minimum length to avoid fragmentation.
+
+. An appointment can start at the same time as a work shift or exactly
+after one or more repetition of the minimum duration.
++
+For instance, if a work shift starts at 9 a.m. and the
+minimum length is 1/2 an hour, an appointment can begin at 9, 9:30, 10:00
+and so, even if appointment length is bigger than 30 minutes.
++
+
+. An appointment only can be deleted if it is empty.
+
+Following is the agenda implementation. It has methods to *add* and *delete*
+shifts and appointments. They handle the previous commented constraints.
+They also check if there are attempts to delete not empty shifts.
+
+Note that in this snippet there is no permanent data storage. Instead
+simple Python dictionaries are used. This implementation only has testing
+purposes.
+
+[source, python]
+-----
+class Agenda(object):
+
+    def __init__(self, minimum_length=1):
+        self._shifts = {}
+        self._appointments = {}
+        self._min_length = minimum_length
+
+    def add_shift(self, start, end):
+        interval = Interval(start, end)
+        shift_id = id(interval)
+        self._shifts[shift_id] = {
+                "interval": interval,
+                "appointments": {}}
+        return shift_id
+
+    def del_shift(self, shift_id):
+        if self._shifts[shift_id]["appointments"] == {}:
+            del self._shifts[shift_id]
+        else:
+            raise ShiftNotEmptyError
+
+    def get_shift(self, shift_id):
+        return self._shifts[shift_id]["interval"]
+
+    def add_appointment(self, start, end):
+        app_interval = Interval(start, end)
+        app_id = id(app_interval)
+        length = app_interval.end - app_interval.start
+        for sid, shift in self._shifts.iteritems():
+            interval = shift["interval"]
+            appointments = shift["appointments"].values()
+            slots = slots_in_interval(length, interval, self._min_length)
+            for slot in slots:
+                if slot == app_interval and \
+                           not interval_overlaps(slot, appointments):
+                    self._appointments[app_id] = sid
+                    self._shifts[sid]["appointments"][app_id] \
+                        = app_interval
+                    return app_id
+        raise NotAvailableSlotError
+
+    def del_appointment(self, app_id):
+        shift_id = self._appointments[app_id]
+        del self._shifts[shift_id]["appointments"][app_id]
+        del self._appointments[app_id]
+
+    def get_appointment(self, app_id):
+        sid = self._appointments[app_id]
+        return self._shifts[sid]["appointments"][app_id]
+
+    def get_shifts_iter(self):
+        for shift_id, shift in self._shifts.iteritems():
+            yield shift_id, shift["interval"]
+-----
+
+The corresponding test follow shows some use cases.
+
+[source, python]
+-----
+class TestAgenda(unittest.TestCase):
+
+    def test_shift(self):
+        agenda = Agenda()
+        shift = agenda.add_shift(9, 14)
+
+        self.assertEqual(Interval(9, 14), agenda.get_shift(shift))
+        shifts = list(agenda.get_shifts_iter())
+        self.assertEqual(shifts, [(shift, Interval(9, 14)), ])
+        agenda.del_shift(shift)
+        shifts = list(agenda.get_shifts_iter())
+        self.assertEqual(shifts, [])
+
+    def test_appointment(self):
+        agenda = Agenda()
+        shift = agenda.add_shift(9, 14)
+
+        app1 = agenda.add_appointment(9, 10)
+        self.assertEqual(Interval(9, 10), agenda.get_appointment(app1))
+
+        agenda.del_appointment(app1)
+
+        app2 = agenda.add_appointment(9, 10)
+        self.assertEqual(Interval(9, 10), agenda.get_appointment(app2))
+
+        with self.assertRaises(NotAvailableSlotError):
+            agenda.add_appointment(9, 11)
+
+        with self.assertRaises(ShiftNotEmptyError):
+            agenda.del_shift(shift)
+-----
+
+Finally running all the tests with `nose` and `coverage` Python packages it
+is possible to measure test code coverage.
+
+indexterm:[Tools, Testing, nose]
+indexterm:[Tools, Testing, coverage]
+
+.....
+$ nosetests --with-coverage -v
+test_appointment (test_agenda.TestAgenda) ... ok
+test_shift (test_agenda.TestAgenda) ... ok
+test_contains (test_interval.TestInterval) ... ok
+test_equals (test_interval.TestInterval) ... ok
+test_overlaps (test_interval.TestInterval) ... ok
+test_find_free_slots (test_operations.TestOperations) ... ok
+
+Name         Stmts   Miss  Cover   Missing
+------------------------------------------
+agenda          46      0   100%
+interval        10      0   100%
+operations       9      0   100%
+------------------------------------------
+TOTAL           65      0   100%
+----------------------------------------------------------------------
+Ran 6 tests in 0.016s
+
+OK
+.....
+
+
+Summing up, the domain model is implemented in less than 150 physical source
+lines of code footnote:[Using SLOCCount,
+http://www.dwheeler.com/sloccount.] including tests with 100% coverage.
+
+indexterm:[Tools, Code analysis, SLOCCount]
+
+Of course, I'm aware it lacks persistence, random search optimization and
+concurrency. It does not handle multi agenda scenario.
+
+These and other issues will be addressed in the following sections.
+
+
+Data store and Persistence
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+To add persistence and concurrency and allow optimum search capabilities an
+external data storage system is used.
+
+The traditional approach is to use a relational database management system
+as MySQL or PostgreSQL.
+
+In this case redis footnote:[http://redis.io/, MIT license.] has been chosen,
+a key-value data store in memory with persistence to disk and
+publish/subscribe capability.
+
+indexterm::[Tools, Database, Redis]
+
+
+.Why Redis
+*********
+The decision is not a pure rational one. More traditional approaches would
+have been easier to develop and less risky.
+
+Using Redis is a decision based on a desire for exploring new technologies
+and on taking advantage in the future of Redis features.
+
+
+.Pro
+
+- Compromise between performance and features
++
+NoSQL technologies have emerged because, despite their very simplistic
+approach to data storage, they offer interesting new performance and
+scalability opportunities.
++
+Almost every operation takes O(1) time so it is possible to have optimum
+queries.
++
+But Redis has several data types, increments and lock methods to help build
+a complex system.
+
+
+- Learning a new technology
++
+It is a challenge to learn a new technology within a real application. The
+trickiest part is the data model and how to organize queries.
+
+.Cons
+
+- Data size management
++
+In Redis, the whole dataset resides in memory, so the size must be taken into
+account to not run out of RAM. Of course, it is always possible to buy more
+bytes.
+
+
+- Actual persistence
++
+There is a lot of controversy about data loss on Redis footnote:[Even
+Redis' author Salvatore Sanfilippo wrote about it in
+http://antirez.com/post/redis-persistence-demystified.html.] According to
+documentation, the standar configuration saves data on disc so data loss is
+not probable.
+
+- It is necessary to explicitly create every relationship
++
+The application must manually maintain relationships between entities and build
+custom indexes to speed up queries.
+
+*********
+
+Data model
+^^^^^^^^^^
+
+*Introducing Redis data types*
+
+Redis data types are one of its strongest points. Next, they are briefly
+introduced but to have a full understanding it would be necessary to confront with
+official documentation <<redis-datatypes>>.
+
+- Strings
++
+Strings are the simplest data types. It is just a key/value. But they have
+very interesting properties like the ability to increment the integer value of
+a key by one in order to generate sequences.
+
+- Lists
++
+Redis Lists are simply lists of strings, sorted by insertion order. It is
+possible to add elements to a Redis List by pushing new elements on the head
+(on the left) or on the tail (on the right) of the list.
+
+- Hashes
++
+A Hash stores several field/value pairs in a key. It is the perfect data
+type to represent objects.
+
+- Sets
++
+A Set is an unordered collection of strings and does not allow repeated
+members. It is used to create a tagged system or stats about unique visitors
+or users.
+
+- Sorted Sets
++
+Sorted Sets are similar to Sets but with a score associated to every member.
+This score is used to sort and filter.
+
+
+
+*Agenda model*
+
+Redis could be defines as a DSL (Domain Specific Language) with a networking
+interface and persistent global variables.
+
+The DSL has commands to store, retrieve and perform other more complex
+operations.
+
+In order to show the data model in the next lines it is described how to
+create an agenda and add two shifts with two appointments each.
+
+1. First, a sequence to get unique identifiers is needed.
++
+----
+> SET sequence.agenda 0
+----
+
+1. To create a new agenda a new id number is obtained.
++
+----
+> INCR sequence.agenda
+1
+----
+
+1. A string is recorded for the agenda properties. The value is JSON encoded. It
+could be possible to use Hashes instead but currently, Agenda has only one
+property.
++
+----
+> SET Agenda:1 "{minimum_length: 1}"
+OK
+----
+
+1. To add a shift, a new sequence value is obtained. This integer is used to
+   build the key to of a redis string:
++
+----
+> INCR sequence.agenda
+2
+> SET Shift:2 "{start: 9, end: 14, parent_key: 1}"
+OK
+----
++
+In the String payload there is a reference to agenda id. The reverse
+relationships is on a Sorted Set:
++
+----
+> ZADD Agenda:1:Shift 9 2
+OK
+> ZADD Agenda:1:Shift:end 14 2
+OK
+----
++
+Here it is a relationship from agenda ("Agenda:1:Shifts") to shifts (2)
+using interval start integer as an index to filter and quick search.
+
+1. To add another shift:
++
+----
+> INCR sequence.agenda
+3
+> SET Shift:3 "{start: 14, end: 19, parent_key: 1}"
+OK
+> ZADD Agenda:1:Shift 14 3
+OK
+> ZADD Agenda:1:Shift:end 19 3
+OK
+----
+
+1. To record an appointment it is need the same data types as with a shift:
+   a sequence, a string and two sorted sets.
++
+----
+> INCR sequence.agenda
+4
+> SET Appointment:4 "{start: 9, end: 10, parent_key: 2}"
+OK
+> ZADD Shift:2:Appointment 9 4
+OK
+> ZADD Shift:2:Appointment:end 10 4
+OK
+> INCR sequence.agenda
+5
+> SET Appointment:5 "{start: 10, end: 11, parent_key: 2}"
+OK
+> ZADD Shift:2:Appointment 10 5
+OK
+> ZADD Shift:2:Appointment:end 11 5
+OK
+> INCR sequence.agenda
+6
+> SET Appointment:6 "{start: 16, end: 17, parent_key: 3}"
+OK
+> ZADD Shift:3:Appointment 16 6
+OK
+> ZADD Shift:3:Appointment:end 17 6
+OK
+> INCR sequence.agenda
+7
+> SET Appointment:8 "{start: 17, end: 18, parent_key: 3}"
+OK
+> ZADD Shift:3:Appointment 17 7
+OK
+> ZADD Shift:3:Appointment:end 18 7
+OK
+----
+
+*Retrieving data*
+
+Given an agenda identifier, the agenda meta data can be obtained retrieving string
+with key `Agenda:1`.
+
+----
+> GET Agenda:1
+1) "{minimum_length: 1}"
+----
+
+To retrieve shifts in an agenda, it necessary get SORTED SET with key
+`Agenda:1:Shift`. In that manner a list of shifts identifiers is obtained.
+
+----
+> ZRANGE Agenda:1:Shifts 0 -1
+1) "2"
+2) "3"
+----
+
+With an shift identifier we can perform an analogue operation to retrieve
+appointments on a shift.
+
+The resulting data structure could be represented by the following figure.
+
+["graphviz"]
+----
+digraph g {
+graph [ rankdir = "LR" ]
+
+node [ shape = record ]
+
+ag [
+  label = "STRING | <key> Agenda:1 | \{minimum_length:1\}"
+]
+
+sh [
+	label = "STRING | <key> Shift:2 | \{start:9, end:14, parent_key:1\}"
+]
+
+ap [
+	label = "STRING | <key> Appointment:4 | \{start: 9, end: 10, parent_key: 2\}"
+]
+
+sh_in_ag [
+	label = "SORTED SET | <key> Agenda:1:Shift | {9 | <child> 2} | {14 | 3}"
+]
+
+ap_in_sh [
+	label = "SORTED SET | <key> Shift:2:Appointment | {9 | <child> 4} | {10 | 5}"
+]
+
+ag:key -> sh_in_ag:key
+sh_in_ag:child -> sh:key
+
+sh:key -> ap_in_sh:key
+ap_in_sh:child -> ap:key
+}
+----
+
+
+*Advanced querying*
+
+As seen, querying in this paradigm is different query in SQL.
+
+For example, it is possible to join several sorted sets in a new one with all the
+appointments in the agenda.
+
+
+----
+> ZUNIONSTORE Agenda:1:Appointment 2 Shift:2:Appointment Shift:3:Appointment
+(integer) 6
+> ZRANGE Agenda:1:Appointment 0 -1
+1) "4"
+2) "5"
+3) "6"
+4) "7"
+5) "8"
+6) "9"
+----
+
+It is possible to filter and to paginate results using the command
+`ZRANGEBYSCORE key min max [WITHSCORES] [LIMIT offset count]` according to
+start and end.
+
+For example, to obtain appointments that start from 10 to 17 (17 non inclusive).
+
+----
+> ZRANGEBYSCORE Agenda:1:Appointment 10 (17 WITHSCORES LIMIT 0, 10
+1) "5"
+2) "10"
+3) "6"
+4) "11"
+5) "7"
+6) "16"
+----
+
+That is, appointments 5, 6 and 7 which start at 10, 11 and 16 respectively.
+
+*Exclusive access*
+
+Transaction to add a new appointment. For example to add a new appointment
+with interval 12 to 13 on shift 1.
+
+----
+WATCH Shift:2:Appointment                      <1>
+MULTI                                          <2>
+ZRANGEBYSCORE Shift:2:Appointment -Inf (13     <3>
+ZRANGEBYSCORE Shift:2:Appointment:end (12 +Inf <3>
+...
+----
+<1> Monitor if the key is changed during transaction
+<2> Begin transaction. If the key watched is modified, the transaction will
+be rolled back.
+<3> These appointments are the candidates to overlap, those which start before
+the new appointment ends.
+
+
+Now, within the running transaction, the application must check if these
+appointments overlaps. If they overlap, `DISCARD` and try again in another
+shift or raise an exception.
+
+If the appointments do not overlap, continue and commit transaction.
+
+----
+...
+INCR sequence.agenda
+SET Appointment:10 "{start: 12, end: 13, parent_key: 2}"
+ZADD Shift:2:Appointment 12 10
+ZADD Shift:2:Appointment:end 13 10
+EXEC
+----
+
+
+Implementation
+^^^^^^^^^^^^^^
+
+The previous model is heavily refactored to use a data store class with data
+objects. I implemented a data store using Python built-in `dict` objects and
+then a Redis data store.
+
+
+(((Python, package, redis-py)))
+
+:pyredis: footnote:[http://pypi.python.org/pypi/redis/, MIT license.]
+
+Redis data store uses redis-py Python Redis client{pyredis}.
+
+
+
+*Data store definition*
+
+The data store interface exposes 3 methods:
+
+- `put(object)`: to save an object. Returns the object with a `key` property
+  updated.
+
+- `get(Class, key)`: to load from data store an object of `Class` type with
+  the key `key`.
+
+- `delete(Class, key)`: to remove from data store an object of `Class` type
+  and the key `key`.
+
+
+*Data objects*
+
+// pyreverse -o png -p server -c Agenda -c Shift -c Appointment dataobjects.py
+image:images/class_diagram_agenda.png[]
+
+There are 3 objects: *Agenda*, *Shift* and *Appointment*. They have a `to_dict()`
+object method and a `from_dict()` class method to serialize.
+
+
+*Shift* and *Appointment* have an interval property.
+
+They are related:
+
+- *Agenda*. It has a collection of Shifts.
+
+- *Shift*. It has a collection of Appointments. It has a parent pointing to
+  the Agenda it belongs to.
+
+- *Appointment*. It has a parent key pointing to the Shift it belongs to.
+
+The data store maintains these relationships.
+
+*Agenda controller implementation*
+
+The new agenda controller implementation (simplified annotated version):
+
+[source,python]
+----
+class AgendaController(object):
+    def __init__(self, key=None, minimum_length=None):
+        if key:
+            self._agenda = ds().get(Agenda, key)           <1>
+        else:
+            self._agenda = Agenda(minimum_length)
+            self._agenda = ds().put(self._agenda)          <2>
+...
+----
+<1> If a key is provided try to fetch Agenda from data store
+<2> If there is no key, create a new Agenda and save it
+
+
+Agenda properties has a read-only key and a writable property
+`minimum_length`.
+
+[source,python]
+----
+...
+    @property
+    def key(self):
+        return self._agenda.key
+
+    @property
+    def minimum_length(self):
+        return self._agenda.minimum_length
+
+    @minimum_length.setter
+    def minimum_length(self, value):
+        self._agenda.minimum_length = value
+        self._agenda = ds().put(self._agenda)
+...
+----
+
+An Agenda has a collection of Shifts. Storage is controlled by the data
+store.
+
+[source,python]
+----
+...
+    def del_shift(self, shift_key):
+        ds().delete(Shift, shift_key)
+
+    def get_shift(self, shift_key):
+        return ds().get(Shift, shift_key).interval
+
+    def get_shifts_iteritems(self):
+        for key, shift in self._agenda.iteritems():   <1>
+            yield (key, shift.interval)
+...
+----
+<1> It is a callback to a data store get function
+
+An Appointment must be related to a Shift. The trickiest task is adding an
+appointment:
+
+
+[source,python]
+-----
+...
+    def add_appointment(self, start, end):
+        appo = Appointment(None, start, end)                                  <1>
+        length = appo.interval.end - appo.interval.start
+        for _, shift in self._agenda.iteritems():                             <2>
+            if appo.interval not in shift.interval:
+                continue                                                      <3>
+            if appo.interval not in slots_in_interval(
+                                length, shift.interval, self.minimum_length):
+                continue                                                      <4>
+            appos_in_shift = [a.interval for (_, a) in shift.iteritems()]
+            if not interval_overlaps(appo.interval, appos_in_shift):
+                appo.parent_key = shift.key                                   <5>
+                try:
+                    appo = ds().put(appo)
+                except (OverlappingIntervalWarning, ConcurrencyWarning):
+                    appo.parent_key = None                                    <6>
+                    continue
+                return appo.key
+        raise NotAvailableSlotError
+...
+-----
+<1> Create an Appointment to be saved
+<2> Check every shift...
+<3> ... Appointment must be inside Shift
+<4> ... Appointment must be one of the slots calculated with
+`slots_in_interval`
+<5> This is a suitable shift
+<6> The data store must find difficulties that abort insertion
+
+
+*Data store implementation*
+
+I wrote two data store implementations: one using `dict` built-in objects as
+the back-end and the other with Redis.
+
+The Redis one is more interesting, let's take a look to the `get()` method
+implementation:
+
+
+[source, python]
+-----
+class RedisDatastore(object):
+...
+    def get(self, cls, key):
+        rkey = k(cls, key)                     <1>
+        payload = self._rds.get(rkey)
+        print rkey, payload
+        if payload == None:
+            raise KeyError
+        d = json.loads(payload)
+        obj = cls.from_dict(d)                 <2>
+        obj.key = key
+        if issubclass(obj.__class__, CollectionDataobjectMixin):
+            self._set_collection_methods(obj)  <3>
+        return obj
+
+    def _set_collection_methods(self, obj):
+        collection_rkey = k(obj.__class__, obj.key, obj.collection_class)
+
+        def _iter():
+            for res in self._rds.zrangebyscore(collection_rkey, 0, "+inf"):
+                yield res, self.get(obj.collection_class, res)
+
+        obj.set_iterator(_iter)
+-----
+<1> Generate Redis key
+<2> Decode JSON payload
+<3> Insert a callback function in the object to go through the items in the
+collection directly from the data store. It is a lazy operation.
+
+
+//Summing up, 9 files, 480 lines of code, 100% coverage.
+
+HTTP Server
+~~~~~~~~~~~
+
+Nowadays, the most popular and convenient way of exposing an API to the world is
+trough HTTP protocol.
+
+But having decided this, there is a lot of ways to implement an actual API.
+
+A formal categorization of option is Richardson's Maturity Model Scale
+footnote:[See Model in
+http://www.crummy.com/writing/speaking/2008-QCon/act3.html]. Leonard
+Richardson categorizes an API in an incremental scale which starts on the web
+service family of standards and reaches the fully RESTful service on level
+3.
+
+
+- Level 0: Web services (SOAP and WS-* family of standards)
++
+--
+HTTP is used only as a transport layer. Messages are sent using the POST method.
+
+The API exposes just one URL. The body of the message comprises everything, data,
+methods, security and errors.
+
+The Level 0 approach is heavy and nowadays almost restricted to corporate
+environments. There are tenths of standards that define transport,
+messaging, security among others footnote:[To get a taste of the 'enterprisy'
+look, see http://www.ibm.com/developerworks/webservices/standards/.]
+--
+
+
+- Level 1: remote procedure calls encapsulated trough URI GET tunneling
++
+--
+With level 2, API has one URL for each method. Parameters are the URL query.
+Even is possible sometimes to differentiate POST and GET requests depending
+on the effects of the remote call.
+
+Level 1 is easier to develop than SOAP. It is specially easy to adapt
+a preexistent API by just mapping methods with URL but, the downside is that
+it is hard to maintain and its evolution becomes difficult.
+--
+
+- Level 2: HTTP verbs to perform CRUD operations on resources
++
+--
+In level 2 API, an URL is a resource, a noun. The HTTP verb specifies the
+action to perform: GET, POST, DELETE or PUT. Parameters can be used to pass
+options to the API. In this case, the HTTP protocol headers are taken into
+account to specify response types and status code of the application.
+
+In previous levels, the headers were used too but the difference is then in this
+case they have meaning on the application domain. For example, a `404 Not Found`
+error response is about a resource not about a URL.
+--
+
+- Level 3: Using hypermedia controls as the engine of the application state
+  footnote:[Acronym is HATEOAS.]
++
+--
+What else do we need for an actual RESTful level 3 API? Hypertext! Roy T.
+Fielding, in his so many times cited but not so many times read famous
+dissertation <<FIELDING2000>>, enumerates several properties.
+
+A REST API only needs to expose an initial URI and a set of standardized
+media types. All the possible application transactions are exposed to the
+API client but the server using hypermedia controls.
+
+The idea is that every one is able to follow a business process on an
+ordinary web application with no previous knowledge, just by following the
+links. The server guides the user on every step by showing the possible
+options.
+
+A RESTful API is the same with the addition of a predefined semantic for
+resource representation and business rule in the form of media types.
+--
+
+
+[[api]]
+API resources and methods
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The API main URI is `agendas`. It is the base to the other
+resources that depend on the agenda.
+
+
+`POST agendas`:: Creates a new agenda.
+
+`GET agendas/{agenda_uuid}`:: Returns agenda meta data.
+
+`DELETE agendas/{agenda_uuid}`:: Deletes an agenda.
+
+Depending on an agenda there are `shifts`. The basic operations are the same
+ws in `agenda`, `POST` method to create a new resource, `DELETE` to remove
+and `GET` to gather informations. In this case it is also possible to obtain
+a collection of `shifts` in an `agenda` using `GET`.
+
+`POST agendas/{agenda_uuid}/shifts`:: Creates a new shift.
+
+`GET agendas/{agenda_uuid}/shifts`:: Return a collection of shifts in an
+agenda.
+
+`GET agendas/{agenda_uuid}/shifts/{shift_uuid}`:: Return shift information.
+
+`DELETE agendas/{agenda_uuid}/shifts/{shift_uuid}`:: Deletes a shift.
+
+An `appointment` belongs to a specific shift but it can be accessed by the
+`shift` hierarchy or by the agenda. The difference is, when queried directly
+from the `agenda`, the server will chose the `shift` to create `appointment`
+or show all `appointments` in the whole `agenda`.
+
+`POST agendas/{agenda_uuid}/appointments`:: Creates an appointment on the
+specified agenda.
+
+`GET agendas/{agenda_uuid}/appointments`:: Returns a collection of
+appointments in the agenda.
+
+If the `appointment` URI specifies a `shift` then the server uses only that
+`shift` to perform the operations.
+
+`POST agendas/{agenda_uuid}/shifts/{shift_uuid}/appointments`:: Creates an appointment on the
+specified shift.
+
+`GET agendas/{agenda_uuid}/shifts/{shift_uuid}/appointments`:: Returns a collection of
+appointments in the shift.
+
+To query and remove a single `appointment` instance we use the simpler URL.
+
+`GET agendas/{agenda_uuid}/appointments/{appointment_uuid}`:: Returns
+appointment details.
+
+`DELETE agendas/{agenda_uuid}/appointments/{appointment_uuid}`:: Removes an
+appointment.
+
+Finally, the API exposes another resource to figure out free slots on an
+agenda. It is similar to `appointments` but only the `GET` method is allowed.
+
+`GET agendas/{agenda_uuid}/freeslots`:: Returns a collection of all the free
+slots in the agenda.
+
+`GET agendas/{agenda_uuid}/shifts/{shift_uuid}/freeslots`:: Returns a collection of
+free slots in the shift.
+
+API formats
+^^^^^^^^^^^
+
+The other key element is the format. It has not only the actual resource
+data but also the hypermedia, the links with possible next requests.
+
+HTTP allows to specify the format. The most popular options are XML and
+JSON. In this case it is implemented only JSON because it is a little easier
+to generate and consume but, to explain the media type better.
+
+// MIME type: application/vnd.quierocita.appointment+json
+
+As said, the format has two types of information. Of course, we have the
+resource description, for example an appointment start and end date. But we
+also have links to access other related resources or perform searches.
+
+-----
+{
+  "kind": "appointment",
+  "id": "456",
+  "self": "http://api.quierocita.com/agendas/123/appointments/456",
+  "start": {
+    "datetime": "2012-09-12T09:00:00Z",
+    "localtime": "2012-09-12 11:00:00",
+    "timezone": "Europe/Madrid"
+  },
+  "end": {
+    "datetime": "2012-09-12T09:30:00Z",
+    "localtime": "2012-09-12 11:30:00",
+    "timezone": "Europe/Madrid"
+  }
+}
+-----
+
+
+[source,xml]
+-----
+<appointment xmlns="http://schema.quierocita.com/appointment">
+  <key>456</key>
+  <link rel="self"
+    href="http://api.quierocita.com/agendas/123/appointments/456" />
+  <start datetime="2012-09-12T09:00:00Z">
+    <localtime timezone="Europe/Madrid">2012-09-12 11:00:00</localtime>
+  </start>
+  <end datetime="2012-09-12T09:00:00Z">
+    <localtime timezone="Europe/Madrid">2012-09-12 11:00:00</localtime>
+  </end>
+</appointment>
+-----
+
+Response status: communicating success and errors
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The server uses HTTP status code definition to indicate results. The standard
+footnote:[http://tools.ietf.org/html/rfc2616#section-6.1.1.] uses a 3-digit
+code and a phrases status line on the response.
+
+The first digit defines the class of response.
+
+- 1xx: Informational: Request received, continuing process.
+
+- 2xx: Success - The action was successfully received,
+  understood, and accepted.
+
+- 3xx: Redirection - Further action must be taken in order to
+  complete the request.
+
+- 4xx: Client Error - The request contains bad syntax or cannot
+  be fulfilled.
+
+- 5xx: Server Error - The server failed to fulfill an apparently
+  valid request.
+
+The last two digits and the phrase specify the exact status explanation.
+
+It is important to note that the codes are used not only for transport
+issues but for application logic too. For example, if a resource does not exist
+the application will respond with a '404 Not Found' or if an appointment
+overlaps the application will issue a '409 Conflict'.
+
+`200 OK`:: Standard response of a successful `GET` request.
+
+`201 Created`:: Returns a new resource data.
+
+`204 No Content`:: Response on deleting a resource. It is successful and no
+response payload is sent back.
+
+`400 Bad request`:: Incorrect parameters or payload.
+
+`403 Forbidden`:: Incorrect access token.
+
+`404 Not Found`:: A resource or an URL is not found.
+
+`409 Conflict`:: Try to delete a non-empty shift or not available slots.
+
+`500 Internal Server Error`:: Generic internal error.
+
+
+Implementation
+^^^^^^^^^^^^^^
+
+To implement a web application in Python the best option is to use the
+Web Server Gateway Interface (WSGI) Python standard footnote:[Python Web
+Server Gateway Interface http://www.python.org/dev/peps/pep-0333/.].
+
+There are plenty of WSGI compatible frameworks, from the more minimalistic
+(CherryPy) to complete batteries-included (Django is an example).
+
+I have chosen `bottle.py` footnote:[http://bottlepy.org/, MIT license.],
+a micro web-framework for Python with no further dependencies beyond the
+Python standard library.
+
+(((Python, package, bottle.py)))
+
+Mapping HTTP methods and paths with methods
++++++++++++++++++++++++++++++++++++++++++++
+
+`bottle.py` framework has a routing engine which maps functions with each
+request. It takes into account not only the path but the HTTP method in the
+request. `setup_routing()` defines the mapping. It is possible to extract
+variables from the URL which will be passed to the callback.
+
+There is one definition for each of the API methods with the path, the HTTP
+method and the callback.
+
+The callback is the function that executes the logic on the business domain.
+
+
+This is a fragment of the routing definition for `GET` and `POST` agenda. In
+`GET` method, the identifier is extracted from the URL it matches an
+integer.
+
+[source, python]
+-----
+def setup_routing(app):
+    ...
+    app.route('/agendas/<aid:int>', "GET" , get_agenda)
+    app.route('/agendas', "POST", post_agenda)
+    ...
+-----
+
+The callback is implemented as a function with a parameter (`aid`), the one
+extracted from the URL.
+
+[source, python]
+-----
+@require_authentication
+def get_agenda(aid):
+    agenda = get_agenda_or_404(aid)
+    return dict_to_response(render_agenda(agenda))
+-----
+
+A decorator `require_authentication` checks if the request has enough
+permissions.
+
+
+Validating data input
++++++++++++++++++++++
+
+There is 3 ways to send input data to the HTTP server application:
+
+- In the path of the URI
++
+`bottle.py` routing parser can extract and filter theses values. The allowed
+values are established by the API definition. An example is the agenda universal
+unique identifier filter as an integer.
+
+- In the query string
++
+The text between `?` and `#` or the end of the URI formatted as in
+`application/x-www-form-urlencoded`, i.e., as name value pairs, using
+percent-encoding and split by an ampersand or a semicolon
+footnote:[Berners-Lee encouraged the use of semicolon to avoid escaping
+issues, for an historical reading, see
+http://tools.ietf.org/html/rfc1866#section-8.2.1.].
+
+- In the message body of the request
++
+In this case, only for POST, the client may send data using a specified
+`Content-Type`. It could be `application/x-www-form-urlencoded` or a JSON or
+XML representation of the resource (`application/json` and `application/xml`
+MIME types respectively).
+
+In general the application will try to filter user data input in the most
+flexible way footnote:[This is the robustness principle or Postel's law:
+"Be conservative in what you do, be liberal in what you accept from
+others".]. Of course, every data will be filtered for security reasons and no
+ambiguity will be allowed.
+
+
+Time zones
+++++++++++
+
+The most important type of data in this application is time. The fundamental
+resource is an interval of time with a start point and an end point. The
+data model explained before works well with integers. These integers are the
+number of seconds from Jan 1st, 1970 Universal Time Coordinated (UTC). This
+is the standard time measure in POSIX systems and it does not take into
+accounts leap seconds. This may lead to an ambiguous situation but this is
+irrelevant for this application.
+
+The internal time is time zone aware, so it is necessary to convert input
+date times to UTC and the other way round.
+
+An agenda has a time zone to simplify the communication with clients.
+
+So the application allows to specify dates in UTC time stamp format or in
+naive date time format, that is, with out time zone information. In the
+latter case application will assume the time zone is the one specified for
+the agenda.
+
+All the conversions are managed by the Python `pytz` package. It has a complete
+world time zones database and allows accurate time calculations.
+
+(((Python, package, pytz)))
+
+
+Authentication
+++++++++++++++
+
+There are several methods to authenticate requests to the HTTP server.
+
+
+- HTTP RFC2617 standard defines
+  footnote:[http://tools.ietf.org/html/rfc2617.] two methods, *Basic Access
+  Authentication* and *Digest Access Authentication*.
++
+--
+Basic Authentication Scheme uses and user-id and a password that are sent
+from the client to the server in plain text.
+
+In Digest Access Authentication Scheme, the password is replace by a calculated
+hash. The standard defines several cryptographic algorithms and options to
+calculate the hash.
+
+User agent and server must negotiate which security schema to use depending
+of their capabilities.
+--
+
+- Other option are *OAuth 1.0* footnote:[It is not a recognized standard by
+  IETF but it was published for informational purposes in
+  http://tools.ietf.org/html/rfc5849.] and *OAuth2* standards footnote:[At
+  this time, October 2012, OAuth2 is a draft on the 31st revision.].
++
+--
+The first OAuth Core 1.0 version was developed on December 2007 by a small
+group of individuals. At that time there was a need for a new open
+standard for API access control that did not require sharing password and
+was login-agnostic.
+
+Another interesting feature needed was to have a single work flow for the
+three main classes of clients: web, desktop and mobile applications.
+
+OAuth became the facto standard and eventually, in April 2010, the IETF
+published RFC5849 "The OAuth 1.0 Protocol" as an informational RFC.
+
+OAuth 2.0 is the next evolution of the OAuth protocol and is not backward
+compatible with OAuth 1.0. It is been developed by a regular IETF Working
+Group but several of its drafts are implemented on real applications by
+important service providers like Google
+footnote:[https://developers.google.com/accounts/docs/OAuth2.] or Facebook
+footnote:[https://developers.facebook.com/docs/concepts/login/].
+
+--
+
+It is clear that one of the OAuth versions is the one to choose when
+it is necessary to provide delegate access to shared resources and with
+multiple clients, mobile and wen. In the current state of development of the
+server API, only it is is supported HTTP standard Basic Authentication.
+
+
+Web client
+~~~~~~~~~~
+
+The API has been designed thinking that power users could use the server
+directly. But, specially at the beginning, the usual way to deal with the
+service will be through the reference web client implementation.
+
+This component is loosely coupled with the server. It has to know the API
+described in <<api, the corresponding section>> on the server implementation
+and the URL to connect with through HTTP protocol.
+
+Django Framework
+^^^^^^^^^^^^^^^^
+
+:django: footnote:[https://www.djangoproject.com/, BSD license.]
+(((Python, package, django)))
+(((Python, package, bottle)))
+
+*Django* Web Framework{django} has been selected. Opposite to *bottle* micro
+framework, Django has 'batteries included' in order to build big projects
+with a lot of functionalities very easily.
+
+Django follows the model-template-view pattern:
+
+- *Model* layer contains everything about data: access, validation,
+  relationships…
+
+- *Template* is the presentation layer which decides how data should be
+  displayed.
+
+- *View* handles business logic. It is the bridge between models and
+  templates.
+
+The other important component is a URL router that delegates execution to
+a view depending on the user input.
+
+Django encourages re usability of components and recommends to develop
+each component in a separate package called 'application' with its own
+models, views and templates.
+
+
+Implementation
+^^^^^^^^^^^^^^
+
+After installing Django, the first step is to initialize the project.
+
+....
+$ django-admin.py startproject webclient
+....
+
+This command builds a folder structure like this:
+
+....
+.
+|-- manage.py
+`-- webclient
+    |-- __init__.py
+    |-- settings.py
+    |-- urls.py
+    `-- wsgi.py
+....
+
+- `settings.py` has the configuration
+
+- `urls.py` matches client request with view methods.
+
+The web client logic is implemented as a Django application. There is also
+a script to initialize it.
+
+....
+$ python manage.py startapp agenda
+....
+
+Manually, a `urls.py` is added. The project `urls.py` will delegate to
+this file the routing.
+
+So, the structure is as follows:
+
+....
+agenda/
+|-- __init__.py
+|-- models.py
+|-- tests.py
+|-- urls.py
+`-- views.py
+....
+
+1. Change the project `urls.py` to delegate URL like *agenda/** to the
+   correspondent application.
+-
++
+[source, python]
+----
+# urls.py - webclient (main project)
+urlpatterns = patterns('',
+    (r'^agenda/', include('agenda.urls')),
+)
+----
+
+2. Normally, the `model.py` file has the database interface. In this case,
+   model is different of a standard Django application. The model is not
+   bound to a database but to the API through HTTP requests.
++
+--
+(((Python, package, requests)))
+(((Python, package, hammock)))
+
+:requests: footnote:[http://python-requests.org/, ISC license.]
+:hammock: footnote:[https://github.com/kadirpekel/hammock, ISC license.]
+
+In `server_models.py` there are 3 models implemented which map shifts and
+appointments resources on the server. The third model is a slot, a free span
+of time suitable to record an appointment.
+
+Instead of database calls, it performs HTTP request to retrieve and store
+resources. The Python package `hammock`{hammock} which wraps
+`requests`{requests} package are used to make HTTP calls.
+
+The abstract class `IResource` implements a class method `get(id)` and
+object methods `save()` and `delete()`.
+
+A simplified version of `IResource`:
+
+[source, python]
+----
+class IResource(object):
+    _resource = "resources"
+    _fields_definition = ((('field1',), int, str),
+                          (('field2',), int, str))
+    _base_request = hammock.Hammock(SERVER).agendas(AGENDA).resources            <1>
+
+    @classmethod
+    def get(cls, id):
+        """Get a a resource from the server and returns an object."""
+        resp = cls._base_request(id).GET(auth=AUTH)                              <2>
+        d = cls.response_to_dict(resp.json)
+        id = resp.json["id"]
+        resource = cls.new(id, **d)
+        return resource
+
+    def __init__(self, **kwargs):
+        self.id = None
+        for key, value in kwargs.iteritems():
+            if key in [FIELD_SEPARATOR.join(names) for names, _, _ in self._fields_definition]:
+                self.__setattr__(key, value)
+
+    def save(self):
+        if self.id == None:
+            resp = self._base_request.POST(auth=AUTH, data=self._data())         <3>
+            self.id = resp.json["id"]
+
+    def delete(self):
+        if self.id is not None:
+            resp = self._base_request(self.id).DELETE(auth=AUTH)                 <4>
+            self.id = None
+----
+<1> It is the base URL as a hammock object. The URL is like
+    `http://SERVER/agendas/AGENDA/resources`.
+<2> `GET` request to fetch a resource.
+<3> `POST` request to create a new resource.
+<4> `DELETE` request to delete a resource.
+
+
+--
+
+1. The classes with the web application business logic are in `views.py`. As
+   with models, there are 3 views, one for each resource. A class has method
+   to deal with request from the browser:
++
+--
+   * GET to visualize resources details, listings and forms
+   * POST to create new resources
+   * Special POST request with a `method` argument set to DELETE to remove
+     a resource
+
+Following is a small snippet with the `pseudodelete` method implementation
+for the `ResourceView` abstract class.
+
+[source, python]
+----
+class ResourceView(TemplateView):
+    ...
+    def pseudodelete(self, request, *args, **kwargs):
+        context = self.get_context_data(**kwargs)
+        oid = request.POST.get("id", None)
+        try:
+            resource = self.Model.delete_id(oid)           <1>
+        except self.Model.DoesNotExist:
+            raise Http404
+        messages.success(request,
+                         _('Resource %(id)s deleted.') % {"id": oid})
+        return redirect(reverse(self.resource))
+----
+<1> Model defined in `server_models.py`
+--
+
+1. The rules that match browser requests with views are in `urls.py`.
++
+[source, python]
+----
+# urls.py - agenda (application)
+urlpatterns = patterns('agenda.views',
+    url(r'^$', 'index'),
+    url(r'^shifts/$', ShiftView.as_view(), name="shifts"),
+    url(r'^appointments/$', AppointmentView.as_view(), name="appointments"),
+    url(r'^slots/$', SlotView.as_view(), name="freeslots"),
+    url(r'^slots/(?P<year>\d{4})/(?P<month>[01]*\d)/(?P<day>[0-3]*\d)/$', SlotView.as_view(), name="freeslots"),
+)
+----
+
+1. It also necessary to deal with HTML forms management. The application uses
+   Django forms classes which provides HTML forms rendering and input data
+   validation. The code is in `forms.py` file.
+
+1. Finally, other assets are needed to have a web application.
++
+--
+.. Templates are the final representations sent to the browser. They
+   generate HTML files. They reside in a `templates` folder.
+
+.. In addition to dynamic generated HTML pages, there are static resources
+   like images, CSS files or Javascript source code files. These assets have
+   an specific folder which will be served directly by the HTTP server.
+
+:django_i18n: footnote:[https://docs.djangoproject.com/en/1.4/topics/i18n/]
+
+.. In order to allow several languages to be displayed depending of browser
+   configuration, string literals and label in templates and in source code
+   use Django internationalization and localization system{django_i18n}. The
+   translated language files have a folder also.
+
+--
+
+So, the final and complete directory layout for the agenda Django
+application is shown in the following listing:
+
+----
+agenda
+|-- locale
+|   `-- es
+|       `-- LC_MESSAGES
+|           |-- django.mo
+|           `-- django.po
+|-- static
+|   |-- css
+|   |   |-- agenda.css
+|   |   `-- main.css
+|   `-- js
+|       |-- vendor
+|       |   |-- jquery-1.7.2.min.js
+|       |-- agenda.js
+|       `-- plugins.js
+|-- templates
+|   `-- agenda
+|       |-- appointments.html
+|       |-- base.html
+|       |-- index.html
+|       |-- shifts.html
+|       `-- slots.html
+|-- __init__.py
+|-- forms.py
+|-- server_models.py
+|-- tests.py
+|-- urls.py
+`-- views.py
+----
+
+
+Statistics
+~~~~~~~~~~
+
+Next it is calculated the size of the final source code. In the case of the
+server, the percentage of source code cover by test is also calculated.
+
+indexterm:[Tools, Testing, nose]
+indexterm:[Tools, Testing, coverage]
+indexterm:[Tools, Code analysis, SLOCCount]
+
+
+Server
+^^^^^^
+
+.Generated using David A. Wheeler's SLOCCount
+----
+SLOC    Directory       SLOC-by-Language (Sorted)
+1248    server          python=1002,sh=246
+
+Totals grouped by language (dominant language first):
+python:        1002 (80.29%)
+sh:             246 (19.71%)
+
+Total Physical Source Lines of Code (SLOC)                = 1,248
+Development Effort Estimate, Person-Years (Person-Months) = 0.25 (3.03)
+ (Basic COCOMO model, Person-Months = 2.4 * (KSLOC**1.05))
+Schedule Estimate, Years (Months)                         = 0.32 (3.81)
+ (Basic COCOMO model, Months = 2.5 * (person-months**0.38))
+Estimated Average Number of Developers (Effort/Schedule)  = 0.80
+Total Estimated Cost to Develop                           = $ 34,093
+ (average salary = $56,286/year, overhead = 2.40).
+----
+
+.ohcount, Ohloh source code line counter command line tool
+----
+Examining 21 file(s)
+
+                          Ohloh Line Count Summary                          
+
+Language          Files       Code    Comment  Comment %      Blank      Total
+----------------  -----  ---------  ---------  ---------  ---------  ---------
+python               12       1000         39       3.8%        348       1387
+shell                 1          3          0       0.0%          1          4
+----------------  -----  ---------  ---------  ---------  ---------  ---------
+Total                13       1003         39       3.7%        349       1391
+----
+
+.coverage
+-----
+Name          Stmts   Miss  Cover
+------------ --------------------
+agenda          235     90    62%
+dataobjects      83      6    93%
+interval         18      0   100%
+server          246    101    59%
+------------ --------------------
+TOTAL           582    197    66%
+-----
+
+
+Web client
+^^^^^^^^^^
+
+.Generated using David A. Wheeler's SLOCCount
+----
+SLOC    Directory       SLOC-by-Language (Sorted)
+281     agenda          python=281
+122     webclient       python=122
+6       top_dir         python=6
+
+Totals grouped by language (dominant language first):
+python:         409 (100.00%)
+
+Total Physical Source Lines of Code (SLOC)                = 409
+Development Effort Estimate, Person-Years (Person-Months) = 0.08 (0.94)
+ (Basic COCOMO model, Person-Months = 2.4 * (KSLOC**1.05))
+Schedule Estimate, Years (Months)                         = 0.20 (2.44)
+ (Basic COCOMO model, Months = 2.5 * (person-months**0.38))
+Estimated Average Number of Developers (Effort/Schedule)  = 0.38
+Total Estimated Cost to Develop                           = $ 10,567
+ (average salary = $56,286/year, overhead = 2.40).
+----
+
+.ohcount, Ohloh source code line counter command line tool
+----
+Examining 40 file(s)
+
+                          Ohloh Line Count Summary                          
+
+Language          Files       Code    Comment  Comment %      Blank      Total
+----------------  -----  ---------  ---------  ---------  ---------  ---------
+python               11        409        110      21.2%        132        651
+html                  5        143         14       8.9%         28        185
+javascript            4         91          8       8.1%          1        100
+----------------  -----  ---------  ---------  ---------  ---------  ---------
+Total                20        643        132      17.0%        161        936
+----
+
+
+
+
+Deployment
+----------
+
+[quote, Rolf Russell (ThoughtWorks)]
+_________________
+Treat servers like cattle, not pets
+footnote:[The concept probably appeared first in *Introducing Continuous
+Delivery* webminar recorded Oct 25, 2011. See
+http://www.youtube.com/watch?v=t6XUVaPQkKE.]
+_________________
+
+
+Architecture
+~~~~~~~~~~~~
+
+The production setup has the following components:
+
+- An *HTTP server* instance to serve static resources (HTML, image files) and
+  to act as a reverse proxy to the Python web applications.
+
+- Two *Python WSGI HTTP server* instances to run the Django web client and the
+  API server respectively.
+
+- The *server data store*.
+
+- The two Python web applications, the API server and the Django web client.
+
+["graphviz"]
+----
+digraph G {
+    ranksep = 1
+    rankdir = LR
+    node [
+        shape = "record"
+        fontsize = 10
+    ]
+    A0 [
+        label = "nginx"
+    ]
+    A1 [
+        label = "Django"
+    ]
+    edge [
+        shape = "edge"
+        dir = "both"
+        style = "solid"
+        arrowtail = "none"
+        taillabel = ""
+        arrowhead = "vee"
+        headlabel = ""
+        labeldistance = 2
+        fontsize = 10
+    ]
+    A0 -> A1
+    A2 [
+        label = "API"
+    ]
+    A0 -> A2
+    A1 -> A2
+    A3 [
+        label = "redis"
+    ]
+    A2 -> A3
+    subgraph cluster_A4 {
+        label = "Gunicorn"
+        fontsize = 10
+        A2
+        A1
+    }
+}
+----
+
+
+*HTTP server*
+
+`nginx` footnote:[http://nginx.org/, 2-clause BSD-like license.] is the
+main HTTP server chosen. It is a high performance and low resource
+consumption server. It uses an event-driven architecture instead the
+traditional based on threads.
+
+(((Server, nginx)))
+
+This server is the only point that can be directly accessed by Internet.
+
+
+*Python WSGI server*
+
+The server application based on `bottle.py` and the Django web application
+use the 'Web Server Gateway Interface (WSGI)' specification
+footnote:[http://www.python.org/dev/peps/pep-3333/]. It defines an interface
+for the web application and for the web server.
+
+The other piece, the WSGI HTTP server chose is *Gunicorn*
+footnote:[http://gunicorn.org/, MIT license.]. This server allows to launch
+several workers of each application to increase throughput.
+
+(((Python, Server, Gunicorn)))
+
+*Data store*
+
+The server data store chosen is *redis* as stated previously.
+
+
+Installation and initial configuration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Base system
+^^^^^^^^^^^
+
+The base system it is an Ubuntu server (12.04 LTS) installed only with an
+OpenSSH server and build-essential package.
+
+1. *Nginx* is installed from the distro package
++
+-----
+$ sudo aptitude install nginx-full
+-----
+
+
+2. In the case of *redis*, to have the latest version, it is better to
+  compile form source and install using the include GNU `make`.
++
+-----
+$ wget http://redis.googlecode.com/files/redis-2.4.17.tar.gz
+$ tar xzf redis-2.4.17.tar.gz
+$ cd redis-2.4.17/
+$ make
+$ sudo make install
+$ cd utils/
+$ sudo ./install_server
+-----
+
+3. Other dependencies are:
++
+** `Git` is used to fetch source code.
+
+** `Supervisord` footnote:[http://supervisord.org/, ZPL-2.1 and others
+   licenses.] is the daemon management system to run the Gunicorn process.
+
+** `pip` and `virtualenv` are in charge of installing isolated Python
+   environments for each application.
++
+-----
+$ sudo aptitude install git supervisor python-pip python-virtualenv
+-----
+
+(((Tools, Git)))
+(((Python, Tools, Supervisor)))
+(((Python, Tools, Gunicorn)))
+(((Python, Tools, pip)))
+(((Python, Tools, virtualenv)))
+
+
+Gunicorn will be installed inside the virtual environment created with
+`virtualenv` tool.
+
+
+Applications
+^^^^^^^^^^^^
+
+Each application it is installed in its own folder in the path
+`/opt/{app_name}`.
+
+----
+.
+|-- env
+|-- src
+|-- log
+`-- etc
+    |-- nginx.conf
+    `-- supervisord.conf
+----
+
+`env`:: virtual environment.
+
+`src`:: source code it is a `git` clone.
+
+`log`:: log files from application and server.
+
+`etc`:: configuration files for `nginx` and `supervisord`. These files are
+linked from the respectively `conf.d` directories.
+
+Furthermore there is an specific git repository for each in
+`/srv/git/{app_name}.git`
+
+
+For example, to install an application, supposing its name is `server` and
+the user's name is `migonzalvar`, the next steps are used.
+
+1. Create git repository to host the application source code.
++
+----
+cd /srv/
+sudo mkdir git
+cd git
+sudo git init --bare server.git
+sudo chown -R migonzalvar:migonzalvar server.git/
+----
+
+2. From the developmnet environment, *push* the source code to the brand new
+   repository.
++
+----
+git remote add production ssh://migonzalvar@quierocita.com/srv/git/server.git
+git push production master
+----
+
+3. Create application layout and fetch source code.
++
+----
+cd /opt
+sudo mkdir server
+sudo chown -R migonzalvar:migonzalvar server/
+virtualenv --no-site-packages /opt/server/env
+git clone file:///srv/git/server.git src
+mkdir etc
+mkdir log
+----
+
+4. Install Python packages required by the application and `gunicorn` HTTP
+   server.
++
+----
+cd /opt/server
+source env/bin/activate
+pip install -r src/requirements.txt
+pip install gunicorn
+deactivate
+----
+
+
+5. Install `nginx.conf` and `supervisord.conf` configuration files in
+   `etc` folder.
++
+--
+
+Next it is shown an example configuration files for the server.
+
+.Nginx configuration
+----
+upstream apiserver {
+    server 127.0.0.1:8008;          <1>
+}
+
+server {
+    listen      localhost:80;
+    server_name api.quierocita.com; <2>
+    client_max_body_size    4G;
+    keepalive_timeout       5;
+
+    access_log  /opt/server/log/access.log;
+
+    location / {
+        proxy_pass          http://apiserver;
+        proxy_redirect      off;
+        proxy_set_header    Host            $host;
+        proxy_set_header    X-Real-IP       $remote_addr;
+        proxy_set_header    X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+----
+<1> It is possible to use a domain name, an address, port or Unix socket
+<2> Virtual server, it must match `Host` header of the incoming HTTP request
+
+.Supervisor configuration
+-----
+[program:server]
+command=/opt/server/env/bin/gunicorn -b 127.0.0.1:8008 server:app
+directory=/opt/server/src
+environmnet=PYTHONPATH="/opt/server/env/bin"
+autostart=true
+autorestart=true
+stdout_logfile=/opt/server/log/server.log
+redirect_stderr=true
+umask=022
+-----
+
+--
++
+--
+In the case of th Django application it is necessary to specify a path for
+the static resources (CSS, images and Javascript files).
+
+.Nginx configuration
+-----
+upstream webclient {
+    server 127.0.0.1:8000;
+}
+
+server {
+    listen      localhost:80;
+    server_name demo.quierocita.com;
+    client_max_body_size    4G;
+    keepalive_timeout       5;
+
+    access_log  /opt/log/access.log;
+
+    location /static/ {
+        alias   /opt/webclient/staticfiles/;
+    }
+
+    location / {
+        proxy_pass          http://webclient;
+        proxy_redirect      off;
+        proxy_set_header    Host            $host;
+        proxy_set_header    X-Real-IP       $remote_addr;
+        proxy_set_header    X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+-----
+--
+
+6. Make links to the configuration files from and reload services.
++
+--
+
+The configuration files are linked to the standard location from the
+application folder.
+
+----
+sudo ln -s /opt/server/etc/nginx.conf /etc/nginx/conf.d/server.conf
+sudo ln -s /opt/server/etc/supervisord.conf /etc/supervisor/conf.d/server.conf
+----
+
+For `nginx` it is necessary to use `service` command to reload the daemon.
+
+----
+sudo service nginx restart
+----
+
+For `gunicorn`, `supervisordctl` command is used. Note that `update` subcommand
+it is only needed if configuration file has chenged (or is new).
+
+----
+sudo supervisorctl -c /etc/supervisor/supervisord.conf update
+sudo supervisorctl -c /etc/supervisor/supervisord.conf restart server
+----
+
+--
+
+Automation and continuous delivery
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+With all this infrastructure, to deploy a new version to the production
+environment it is only needed to folow 3 steps:.
+
+1. Push changes to git repository on the production server.
++
+----
+me@developermachine$ git push production master
+----
+
+2. Update `src` folder on the application folder.
++
+----
+cd /opt/server/src
+git pull
+----
+
+3. Reload `gunicorn`.
++
+----
+sudo supervisorctl -c /etc/supervisor/supervisord.conf restart server
+----
+
+
+In order to make the deployment even easier and to allow to replicate the
+whole setup, I used `fabric` footnote:[http://fabfile.org/, BSD license.]
+tool for automate SSH scripts.
+
+(((Python, Tools, fabric)))
+
+As an example of use, this snippet creates an application layout anf fetch
+the source code:
+
+[source,python]
+----
+# fabfile.py
+import os.path
+from fabric.api import cd, sudo, run
+
+env.user = 'migonzalvar'
+env.group = env.user
+
+def create_project_layout(name):
+    with cd("/opt"):
+        sudo("mkdir " + name)
+        sudo("chown -R %s:%s %s/" % (env.user, env.group, name))
+    path = os.path.join("/opt", name)
+    with cd(path):
+        make_virtualenv(os.path.join(path, "env"))
+        run("git clone file:///srv/git/%s.git src" % name)
+        run("mkdir etc")
+        run("mkdir log")
+----
+
+To execute this command on a remote machine it is necessary to specify the
+target and de 'name' argument:
+
+----
+$ fab -H migonzalvar@quierocita.com create_project_layout:server
+----
+
+All the instructions commented in previous sections to install, setup
+and manage the production server has been translated into a `fabric` script.
+
+For this reason, the deployment is easily and straightforward repeatable.
+
+
+
+
+Business model
+--------------
+
+Open source business model
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+I think the software service here build is a commodity service in the
+sense that can be easily interchangeable with almost other similar solution.
+Of course it would be possible to make a difference with new features and
+customization but this would narrow even more the market target.
+
+So, maintaining the source code in secret is not an advantage. On the contrary,
+using a FLOSS approach facilitates new business models.
+
+With the source code accessible it could be possible to make alliances with
+other technology integrators without the need of formal contracts or
+agreement.
+
+This approach is described in <<DAFFARA2007>> as the *'product specialist'*
+business model strategy. The main revenues are provided from services
+related to the product assuming the company which build the product has the
+best expertise. The problem with this approach is the possibility to
+competitors to gain knowledge on the product without any trade-off.
+
+
+The services provided will be mainly:
+
+- *re-branded and private implementations*
++
+Final no technological customers with branding or security constraints.
+
+- *customization and new features development*
++
+Technical integrator or specialized final customer which special
+requirements.
+
+- *support to third part integrators*
++
+Technical support to technical partners.
+
+- *integration with other services*
++
+Partnering with other SaaS providers to develop plug-ins or interoperation.
+
+- Moreover, a *freemium SaaS platform* will be deployed as a testbed and
+  a showcase but not targeted as the main revenue source.
++
+Even taking into account the possibility to any competitor to build its own
+platform, again, the assumption that the best specialist on one product are
+the best to provide it must be an enough advantage to counteract this
+threat.
+
+
+Licensing
+^^^^^^^^^
+:isc: footnote:[Original http://www.isc.org/software/license.]
+
+To allow an ecosystem flourish, I choose a liberal license, the Internet
+System Consortium license (ISC){isc}, approved by the "Free Software Foundation"
+and the "Open Source Initiative".
+
+----
+Copyright (c) 2012, Miguel Gonzalez <migonzalvar@gmail.com>
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+----
+
+The reason to choose a permissive license instead of a copyleft one, as
+GPL or AGPL, is that the latter option could restrain companies to use it
+because of the inability to evolve de code without publishing the changes.
+In the other hand it will eventually allow to create a proprietary fork.
+
+The ISC is chosen instead the more popular and robust permissive like 'Apache
+License 2.0' because ISC is simpler to understand and this development is
+not so sophisticated to require specific protection against patents and
+intellectual property issues.
+
+
+Business model canvas
+~~~~~~~~~~~~~~~~~~~~~
+
+The next section follows the 'Business model canvas' defined in
+<<OSTERWALDER2009>>. Osterwalder and Pigneur define a business model as
+'"rationale of how an organization creates, delivers, and captures value"'.
+
+Next, the nine basic building blocks that show how a company
+based on a software as a service appointment system intends to make money
+are described.
+
+
+Customer segments
+^^^^^^^^^^^^^^^^^
+
+A two-sided market is identified.
+
+In one side the possible customers are direct consumers of the product. They
+could be segmented in two groups according with theirs size:
+
+- Professionals who work alone or in a small team.
+
+- Bigger organizations, professional associations, franchises and chains
+  businesses.
+
+Moreover, there are other customers, system integrators and technology
+intermediates who can resell this SaaS to their customers.
+
+
+Value proposition
+^^^^^^^^^^^^^^^^^
+
+The problem to the final users has been described at the beginning: to book
+appointments and all the related activities as alerts or cancellations.
+
+The solutions is to provide a system accessible on-line to manage an agenda.
+
+It relieves some pains to the professionals:
+
+- unattended so it is no necessary be on call
+
+- reminders to customer that reduce no-shows
+
+And shows up new opportunities:
+
+- full time availability so customer could book at any time from any place,
+  that is, more income through appointments.
+
+
+Revenue stream
+^^^^^^^^^^^^^^
+
+The three main services identified are:
+
+- *Freemium service*
++
+The basic service is free. It may contain advertising, limited features or
+a maximum capacity.
++
+The paid version removes these constraints and also can include more
+features.
++
+This service is designed for solo professionals and small teams. It is also
+a platform to gain notoriety, test functionalities and attract customer to
+more valuable services.
+
+- *Private re-branded server*
++
+Similar to freemium, in this case, the service is deployed with the customer
+brand, that is, as it is fully integrated with its own infrastructure.
++
+This is a more suitable solution for chains businesses and big organizations
+which have a strong brand.
+
+- *Charging for implement features*
++
+New features can be implemented by request. Of course, this service is for
+technological intermediates but also for non technical customers who had
+a re-branded server.
+
+
+Channels
+^^^^^^^^
+
+There are two channels to the direct customer that map the previous
+commented size segmentation.
+
+- Small final users are acquired only through the freemium web portal
+  using direct advertising and search engine marketing.
+
+- Bigger customers like enterprises and professional associations are
+  contacted using a traditional commercial channel through sales
+  representatives.
+
+
+Customer relationships
+^^^^^^^^^^^^^^^^^^^^^^
+
+As noted for channels, there are two differentiated kinds of customers.
+
+- For the freemium web users, the web site is the main point of contact. All
+  the processes sign-up, support and billing are operated on-line. The goal
+  is to bring the same experience as other web services without falling into
+  a complex website. Maintenance simplicity and operations will be the
+  motto.
+
+- The upper segment works as a traditional software development company with
+  a core product.
+
+
+Key partnerships
+^^^^^^^^^^^^^^^^
+
+Being an open source based company, the main differentiator factor is the
+possibility to established a healthy partner environment.
+
+This ecosystem could not be improvised, on the contrary, must be explicitly
+cultivated by having the right incentives to attract collaborators. These
+incentives are a mix between promotion, technical aspects (source code
+quality, easy deployment and documentation) and business issues (no privative
+modules, non direct competition agreement).
+
+
+Key resources
+^^^^^^^^^^^^^
+
+The resources are the knowledge about software services and the activity is
+to use them to build an open source system to fulfill customers
+expectations. It is a difficult challenge because commercial open source
+software initiatives sometimes fail to serve a market because the huge gap
+between developers and users.
+
+
+Key activities
+^^^^^^^^^^^^^^
+
+So the key activity is to bring balance to open source and marketing drive
+development taking into account all the stakeholders footnote:["'The
+stakeholders in a corporation are the individuals and constituencies that
+contribute, either voluntarily or involuntarily, to its wealth-creating
+capacity and activities, and that are therefore its potential beneficiaries
+and/or risk bearers.'" James E. Post, Lee E.  Preston, and Sybille Sachs,
+"Stakeholder Management and Organizational Wealth"]: company, users,
+customers, partners and community.
+
+Cost structure
+^^^^^^^^^^^^^^
+
+The cost effort is divided by *development* and *acquisition* costs. The
+third cost element is the *partnership and community development* but, in
+some way, is a mixture between the previous two because it is deeply related
+with the product development and the acquisition of new business
+opportunities.
+
+
+Conclusions
+-----------
+
+[quote, Plato]
+_____
+As for me, all I know is that I know nothing.
+_____
+
+
+This practicum and, in general, this Master course has been a very intense
+experience. The topics covered are broad and come form several fields.
+
+Thanks to open source model of open innovation, there is a lot of resources
+to learn, analyse, compare and test. This fierce competition raises the bar
+of quality and causes a feeling of not come up with other's expectations.
+
+Options had multiplied over the path yielding to infinite possibilities
+and some anxiety. At the end, you have to choose your own path and carry on.
+ + 
+
+The Internet is the medium that has made this disruption possible. It is
+matter of time that this wave of openness will disrupt other fields like
+business, education, entertainment and even politics.
+ + 
+
+I can't imagine anything more exciting that to be part of this revolution.
+
+
+
+[bibliography]
+References
+----------
+
+[bibliography]
+.FLOSS
+
+- [[[RAYMOND2000]]] Raymond, Eric Steven. "The Cathedral and the Bazaar". 2000.
+	http://www.catb.org/~esr/writings/cathedral-bazaar/cathedral-bazaar/index.html
+
+
+[bibliography]
+.NoSQL
+
+- Katsov, Ilya. "NoSQL Data Modeling Techniques".
+  http://highlyscalable.wordpress.com/2012/03/01/nosql-data-modeling-techniques/
+
+- Kovács, Kristóf. "Cassandra vs MongoDB vs CouchDB vs Redis vs Riak vs
+  HBase vs Membase vs Neo4j comparison".
+  http://kkovacs.eu/cassandra-vs-mongodb-vs-couchdb-vs-redis
+
+- [[[redis-datatypes]]] Redis official documentation.
+  http://redis.io/topics/data-types
+
+
+[bibliography]
+.HTTP API and REST
+
+- [[[FIELDING2000]]] Fielding, Roy Thomas. Architectural Styles and the Design
+  of Network-based Software Architectures. Doctoral dissertation, University
+  of California, Irvine, 2000.
+  http://www.ics.uci.edu/~fielding/pubs/dissertation/top.htm
+
+- Algermissen, Jan. "Classification of HTTP based APIs".
+  http://nordsc.com/ext/classification_of_http_based_apis.html
+
+- Algermissen, Jan. "RESTful HTTP patterns and antipatterns".
+  http://www.slideshare.net/algermissen/res-tful-httppatternsantipatterns
+
+- Fowler, Martin. "Richardson Maturity Model".
+  http://martinfowler.com/articles/richardsonMaturityModel.html
+
+- Fielding, Roy Thomas. "REST APIs must be hypertext-driven".
+  http://roy.gbiv.com/untangled/2008/rest-apis-must-be-hypertext-driven
+
+- "The OAuth 1.0 Protocol".
+  http://tools.ietf.org/html/rfc5849
+
+- Hammer, Eran. "OAuth 2.0 and the Road to Hell".
+  http://hueniverse.com/2012/07/oauth-2-0-and-the-road-to-hell/
+
+- Twitter API documentation. https://dev.twitter.com/docs/api
+
+- Fielding, Roy Thomas. "HATEOAS, an abbreviation for Hypermedia as the Engine of
+  Application State".
+	http://roy.gbiv.com/untangled/2008/rest-apis-must-be-hypertext-driven
+
+- Klabnik, Steve. "Haters gonna HATEOAS".
+  http://timelessrepo.com/haters-gonna-hateoas
+
+- House, Cory. "How RESTful is Your API?".
+  http://www.bitnative.com/2012/08/26/how-restful-is-your-api/
+
+- Jones, Richard, "Web micro-framework battle".
+  http://www.slideshare.net/r1chardj0n3s/web-microframework-battle.
+  http://www.youtube.com/watch?v=AYjPIMe0BhA
+
+
+[bibliography]
+.Time
+
+- Burns, Taavi. "What you need to know about datetimes"
+  http://taaviburns.ca/what_you_need_to_know_about_datetimes/what_you_need_to_know_about_datetimes.pdf
+
+- Ronacher, A. "Dealing with Timezones in Python".
+  http://lucumr.pocoo.org/2011/7/15/eppur-si-muove/
+
+- Voss, Jochen. "Date and Time Representation in Python".
+  http://www.seehuhn.de/pages/pdate
+
+- "Internet Date/Time format as a profile of ISO 8601".
+  http://tools.ietf.org/html/rfc3339#section-5.6
+
+- [[[ISO8601]]] "Data elements and interchange formats -- Information
+  interchange -- Representation of dates and times", ISO 8601:1988(E),
+  International Organization for Standardization, June, 1988.
+
+- "Internet Calendaring and Scheduling Core Object Specification
+  (iCalendar)". http://tools.ietf.org/html/rfc2445
+
+- "hCalendar microformat". http://microformats.org/wiki/hcalendar
+
+
+[bibliography]
+.Django
+
+- Knupp, J. "Starting a Django Project the Right Way".
+  http://www.jeffknupp.com/blog/2012/02/09/starting-a-django-project-the-right-way/
+
+- "The Django Book". http://www.djangobook.com
+
+
+[bibliography]
+.Deployment
+
+- Kanies, Luke. "DevOps: What It Is, Why It Exists and Why It's Indispensable".
+  http://www.readwriteweb.com/enterprise/2011/08/devops-what-it-is-why-it-exist.php
+
+- "Deployment layout according Filesystem Hierarchy Standard".
+  http://www.pathname.com/fhs/pub/fhs-2.3.html
+
+
+[bibliography]
+.Business model
+
+- [[[DAFFARA2007]]] Daffara, Carlos (2007). "Business models in FLOSS-based
+  companies".
+
+- [[[OSTERWALDER2009]]] Osterwalder, Alexander and Pigneur, Yves (2009).
+  "Business Model Generation".
+
+- Preston-Werner, Tom. "Open Source (Almost) Everything".
+  http://tom.preston-werner.com/2011/11/22/open-source-everything.html
+
+
+[colophon]
+Meta
+----
+
+This report has been written using the following tools:
+
+- Editor: http://www.vim.org/[vim].
+
+- Markup language and toolchain for PDF generation:
+	http://www.methods.co.nz/asciidoc/index.html[asciidoc] an
+	http://www.methods.co.nz/asciidoc/a2x.1.html[a2x] tool chain.
+
+
+[index]
+Index
+-----
+
+
+// vim: set ft=asciidoc spell et:
