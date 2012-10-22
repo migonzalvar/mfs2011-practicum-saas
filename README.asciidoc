@@ -1,0 +1,14 @@
+Building a SaaS with FLOSS
+==========================
+:author:   Miguel González Álvarez
+:email:    migonzalvar@gmail.com
+
+This is a practicum within the *V Máster en Desarrollo y Gestión de
+Proyectos de Software Libre* organized by http://www.igalia.com[Igalia S.L.]
+and http://libresoft.es[Libresoft research group] based at
+http://www.urjc.es/[University Rey Juan Carlos].
+
+The goal is to build a software as a service appointment system using free
+libre software tools and analyze every step including possible business
+models.
+
