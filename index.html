@@ -250,6 +250,35 @@ def get_agenda(aid):
 		<section>
 			<img src="images/django.png" />
 		</section>
+		<section>
+			<pre><code contenteditable>
+class IResource(object):
+			</code></pre>
+			<pre><code contenteditable>
+    @classmethod
+    def get(cls, id):
+        """Get a a resource from the server and
+        returns an object."""
+        resp = cls._base_request(id).GET(auth=AUTH)
+        d = cls.response_to_dict(resp.json)
+        id = resp.json["id"]
+        resource = cls.new(id, **d)
+        return resource
+			</code></pre>
+			<pre><code contenteditable>
+    def save(self):
+        if self.id == None:
+            resp = self._base_request.POST(auth=AUTH,
+                   data=self._data())
+            self.id = resp.json["id"]
+			</code></pre>
+			<pre><code contenteditable>
+    def delete(self):
+        if self.id is not None:
+            resp = self._base_request(self.id).DELETE(auth=AUTH)
+            self.id = None
+				</code></pre>
+			</section>
 	</section>
 	<section>
 		<section>
