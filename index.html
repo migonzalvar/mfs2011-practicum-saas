@@ -1,1 +1,383 @@
-My GitHub Page
+<!doctype html>
+<html lang="en">
+
+	<head>
+		<meta charset="utf-8">
+
+		<title>Building a software as a service appointment system with FLOSS</title>
+
+		<meta name="description" content="Presentation of the practicum within the V Máster en Desarrollo y Gestión de Proyectos de Software Libre organized by Igalia and Libresoft research group based at University Rey Juan Carlos">
+		<meta name="author" content="Miguel González">
+
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+		<link rel="stylesheet" href="css/reveal.min.css">
+		<link rel="stylesheet" href="css/theme/default.css" id="theme">
+
+		<!-- For syntax highlighting -->
+		<link rel="stylesheet" href="lib/css/zenburn.css">
+
+		<!-- If the query includes 'print-pdf', use the PDF print sheet -->
+		<script>
+			document.write( '<link rel="stylesheet" href="css/print/' + ( window.location.search.match( /print-pdf/gi ) ? 'pdf' : 'paper' ) + '.css" type="text/css" media="print">' );
+		</script>
+
+		<!--[if lt IE 9]>
+		<script src="lib/js/html5shiv.js"></script>
+		<![endif]-->
+	</head>
+
+	<body>
+
+		<div class="reveal">
+
+			<!-- Any section element inside of this container is displayed as a slide -->
+
+<div class="slides">
+	<section>
+		<section>
+			<h2>Building a SaaS appointment system with FLOSS</h2>
+			<p><br/></p>
+			<p>V Máster en Desarrollo y Gestión de Proyectos de Software Libre</p>
+		</section>
+		<section>
+			<p>&copy; 2012 Miguel González</p>
+			<a rel="license" href="http://creativecommons.org/licenses/by-sa/3.0/">
+				<img alt="Creative Commons License" style="border-width: 0pt;" src="http://i.creativecommons.org/l/by-sa/3.0/88x31.png" />
+			</a>
+			<br/>This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/3.0/">Creative Commons Attribution-ShareAlike 3.0 Unported License</a>
+		</section>
+		<section>
+			<p><a href="http://www.mastersoftwarelibre.com"><img alt="Máster Software Libre" src="images/mswl.png"/></a></p>
+			<p><a href="http://www.igalia.com"><img alt="Igalia" src="images/igalia.png" /></a></p>
+			<p><a href="http://www.urjc.es"><img alt="Universidad Rey Juan Carlos" src="images/urjc.jpg"/></a></p>
+		</section>
+	</section>
+	<section>
+		<section>
+			<h1>Idea</h1>
+		</section>
+		<section>
+			<img src="images/barbershop.jpg" />
+		</section>
+		<section>
+			<blockquote>
+				Every good work of software starts by scratching a developer’s personal itch
+			</blockquote>
+			<br/>
+			<p>— Eric S. Raymond The Cathedral and the Bazaar</p>
+		</section>
+	</section>
+	<section>
+		<section>
+			<h1>Goals</h1>
+		</section>
+		<section>
+			<ol>
+				<li>Develop from scratch an appointment system</li>
+				<li class="fragment">Implement and deploy a SaaS</li>
+				<li class="fragment">Describe a business model</li>
+				<li class="fragment">FLOSS everywhere</li>
+			</ol>
+			<p class="fragment"><br/>Go through all Master topics!</p>
+			<p class="fragment"><br/>... or almost</p>
+		</section>
+	</section>
+	<section>
+		<section>
+			<h1>Development</h1>
+		</section>
+		<section>
+			<img src="images/python.png" />
+		</section>
+	</section>
+	<section>
+		<section>
+			<h2>Architecture</h2>
+		</section>
+		<section>
+			<img src="images/architecture.png" />
+		</section>
+	</section>
+	<section>
+		<section>
+			<h2>Business domain</h2>
+		</section>
+		<section>
+			<img src="images/domain-model.png" />
+		</section>
+		<section>
+			<ul>
+			<li>Model</li>
+			<ul class="fragment">
+				<li>Work shift</li>
+				<li>Appointment</li>
+			</ul>
+			<br/>
+			<li>Controller</li>
+			<ul class="fragment">
+				<li>Agenda</li>
+			</ul>
+		</ul>
+		</section>
+		<section>
+			<pre><code contenteditable>class Interval(object):
+    def __init__(self, start, end):
+        self.start = start
+        self.end = end
+
+    def __eq__(self, other):
+        return (other.start == self.start and
+                other.end == self.end)
+
+    def __contains__(self, other):
+        return other.start &gt;= self.start and other.end <= self.end
+
+    def overlaps(self, other):
+        return other.end > self.start and self.end &gt; other.start</code></pre>
+		</section>
+		<section>
+			<pre><code contenteditable>
+class TestAgenda(unittest.TestCase):
+
+    def test_shift(self):
+        agenda = Agenda()
+        shift = agenda.add_shift(9, 14)
+
+        self.assertEqual(Interval(9, 14), agenda.get_shift(shift))
+        shifts = list(agenda.get_shifts_iter())
+        self.assertEqual(shifts, [(shift, Interval(9, 14)), ])
+        agenda.del_shift(shift)
+        shifts = list(agenda.get_shifts_iter())
+				self.assertEqual(shifts, [])
+			</code></pre>
+		</section>
+	</section>
+	<section>
+		<section>
+			<h2>Persistence</h2>
+		</section>
+		<section>
+			<img style="background-color:white" src="images/redis.png" />
+		</section>
+		<section>
+			<ul>
+				<li>Several data types (strings, lists, sets, ordered sets…)</li>
+				<li>Basic operations (set, get, get range, incr, sort…)</li>
+				<li>Application handles complex ones (indexing, queries…)</li>
+			</ul>
+		</section>
+		<section>
+			<img src="images/redis-data.png" />
+			<pre class="fragment"><code contenteditable>
+&gt; INCR sequence.agenda
+4
+&gt; SET Appointment:4 "{start: 9, end: 10, parent_key: 2}"
+OK
+&gt; ZADD Shift:2:Appointment 9 4
+OK
+&gt; ZADD Shift:2:Appointment:end 10 4
+OK
+</code></pre>
+			</section>
+		<section>
+			<img src="images/dataobjects.png" />
+		</section>
+	</section>
+	<section>
+		<section>
+			<h2>HTTP Server</h2>
+		</section>
+		<section>
+			<h3>Richardson's Maturity Model Scale</h3>
+			<p class="fragment">Level 0: SOAP and WS-* familiy of standards</p>
+			<p class="fragment">Level 1: RPC encapsulated through GET</p>
+			<p class="fragment">Level 2: HTTP verbs to CRUD operations</p>
+			<p class="fragment">Level 3: Hypermedia controls As the Engine Of the Application State</p>
+		</section>
+		<section>
+			<h3>API REST Level <span class="fragment">2</span></h3>
+			<ul>
+				<li class="fragment">Resources: agenda, shifts, appointments, freeslots</li>
+				<li class="fragment">HTTP verbs: POST, GET and DELETE</li>
+				<li class="fragment">Format representation</li>
+			</ul>
+		</section>
+		<section>
+			<pre><code contenteditable>$ curl -X GET http://api.quierocita.com/agendas/1/shifts/4
+{
+  "kind": "shift", 
+  "id": 4, 
+  "name": "Testing", 
+  "href": "", 
+  "start": {
+    "datetime": "2012-09-29T07:00:00Z", 
+    "timestamp": 1348902000, 
+    "localtime": "2012-09-29 09:00:00", 
+    "timezone": "Europe/Madrid"
+  },
+  "end": {
+    "datetime": "2012-09-29T12:00:00Z", 
+    "timestamp": 1348920000, 
+    "localtime": "2012-09-29 14:00:00", 
+    "timezone": "Europe/Madrid"
+  },
+  "status": 200
+} </code></pre>
+		</section>
+		<section>
+			<h3>Implementation</h3>
+			<pre class="fragment"><code contenteditable>
+def setup_routing(app):
+    ...
+    app.route('/agendas/&lt;aid:int&gt;', "GET" , get_agenda)
+    app.route('/agendas', "POST", post_agenda)
+    ...
+			</code></pre>
+			<pre class="fragment"><code contenteditable>
+@require_authentication
+def get_agenda(aid):
+    agenda = get_agenda_or_404(aid)
+    return dict_to_response(render_agenda(agenda))
+			</code></pre>
+		</section>
+	</section>
+	<section>
+		<section>
+			<h2>Web client</h2>
+		</section>
+		<section>
+			<img src="images/django.png" />
+		</section>
+	</section>
+	<section>
+		<section>
+			<h2>Statistics</h2>
+		</section>
+		<section>
+			<h3>Test coverage</h3>
+			<pre class="fragment"><code contenteditable>
+Name          Stmts   Miss  Cover
+------------ --------------------
+agenda          235     90    62%
+dataobjects      83      6    93%
+interval         18      0   100%
+server          246    101    59%
+------------ --------------------
+TOTAL           582    197    66%
+			</code></pre>
+		</section>
+		<section>
+			<h3>SLOC server</h3>
+			<pre class="fragment"><code contenteditable>
+Examining 21 file(s)
+
+                          Ohloh Line Count Summary
+
+Language  Files   Code   Comment  Comment %  Blank      Total
+--------  -----  -----  --------  ---------  -----  ---------
+python       12   1000        39       3.8%    348       1387
+shell         1      3         0       0.0%      1          4
+--------  -----  -----  --------  ---------  -----  ---------
+Total        13   1003        39       3.7%    349       1391
+			</code></pre>
+		</section>
+		<section>
+			<h3>SLOC client</h3>
+			<pre class="fragment"><code contenteditable>
+Examining 40 file(s)
+
+                          Ohloh Line Count Summary
+
+Language    Files   Code  Comment  Comment %  Blank  Total
+----------  -----  -----  -------  ---------  -----  -----
+python         11    409      110      21.2%    132    651
+html            5    143       14       8.9%     28    185
+javascript      4     91        8       8.1%      1    100
+----------  -----  -----  -------  ---------  -----  -----
+Total          20    643      132      17.0%    161    936
+			</code></pre>
+		</section>
+	</section>
+	<section>
+		<h1>Deployment</h1>
+	</section>
+	<section>
+		<section>
+			<h2>Architecture</h2>
+		</section>
+		<section>
+			<img src="images/deploy.png" />
+		</section>
+		<section>
+			<h2>Automation</h2>
+			<blockquote>Treat servers like cattle, not pets</blockquote>
+			<p><br/>— Rolf Russell (ThoughtWorks)</p>
+		</section>
+	</section>
+	<section>
+		<section>
+			<h1>Business model</h1>
+		</section>
+		<section>
+			<h2>Product specialist</h2>
+		</section>
+		<section>
+			<img src="images/canvas.jpg" />
+			<aside class="notes">
+				<p>Customer segments</p>
+				<p>Value proposition</p>
+				<p>Revenue stream</p>
+				<p>Channels</p>
+				<p>Customer relationships</p>
+				<p>Key partnerships</p>
+				<p>Key resources</p>
+				<p>Key activities</p>
+				<p>Cost structure</p>
+			</aside>
+		</section>
+	</section>
+	<section>
+		<h1>Conclusions</h1>
+	</section>
+	<section>
+		<p>Thank you.</p>
+	</section>
+
+</div>
+
+		</div>
+
+		<script src="lib/js/head.min.js"></script>
+		<script src="js/reveal.min.js"></script>
+
+		<script>
+
+			// Full list of configuration options available here:
+			// https://github.com/hakimel/reveal.js#configuration
+			Reveal.initialize({
+				controls: true,
+				progress: true,
+				history: true,
+				center: true,
+
+				theme: Reveal.getQueryHash().theme, // available themes are in /css/theme
+				transition: Reveal.getQueryHash().transition || 'default', // default/cube/page/concave/zoom/linear/none
+
+				// Optional libraries used to extend on reveal.js
+				dependencies: [
+					{ src: 'lib/js/classList.js', condition: function() { return !document.body.classList; } },
+					{ src: 'plugin/markdown/showdown.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+					{ src: 'plugin/markdown/markdown.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+					{ src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } },
+					{ src: 'plugin/zoom-js/zoom.js', async: true, condition: function() { return !!document.body.classList; } },
+					{ src: 'plugin/notes/notes.js', async: true, condition: function() { return !!document.body.classList; } }
+					// { src: 'plugin/remotes/remotes.js', async: true, condition: function() { return !!document.body.classList; } }
+				]
+			});
+
+		</script>
+
+	</body>
+</html>
