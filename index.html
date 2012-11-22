@@ -341,8 +341,30 @@ Total          20    643      132      17.0%    161    936
 		</section>
 		<section>
 			<h2>Automation</h2>
+		</section>
+		<section>
 			<blockquote>Treat servers like cattle, not pets</blockquote>
 			<p><br/>— Rolf Russell (ThoughtWorks)</p>
+		</section>
+		<section>
+			<pre><code contenteditable># fabfile.py
+import os.path
+from fabric.api import cd, sudo, run
+
+env.user = 'migonzalvar'
+env.group = env.user
+
+def create_project_layout(name):
+    with cd("/opt"):
+        sudo("mkdir " + name)
+        sudo("chown -R %s:%s %s/" % (env.user, env.group, name))
+    path = os.path.join("/opt", name)
+    with cd(path):
+        make_virtualenv(os.path.join(path, "env"))
+        run("git clone file:///srv/git/%s.git src" % name)
+        run("mkdir etc")
+        run("mkdir log")</code></pre>
+			<pre><code contenteditable>$ fab -H migonzalvar@quierocita.com create_project_layout:server</code></pre>
 		</section>
 	</section>
 	<section>
